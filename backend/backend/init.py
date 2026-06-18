@@ -1,3 +1,0 @@
-"""
-SIGMA Backend
-"""
