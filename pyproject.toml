@@ -1,0 +1,14 @@
+[project]
+name = "sigma"
+version = "0.1.0-alpha"
+description = "Sistema Integral de Gestión de Mantenimiento de Activos"
+requires-python = ">=3.12"
+
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
