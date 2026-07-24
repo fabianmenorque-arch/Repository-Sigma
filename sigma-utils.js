@@ -10,18 +10,18 @@
    --------------------------------------------------------------- */
 const SIGMA_CONFIG = {
   // ID de la hoja de cálculo de Google Sheets (parte de la URL entre /d/ y /edit)
-  SHEET_ID: "REEMPLAZAR_CON_TU_SHEET_ID",
+  SHEET_ID: "1dF9de0nLwpeNO6PojRYns_CA_Jig8r8mtCu-3EtfIOo",
 
   // gid de cada pestaña (se ve al final de la URL cuando abrís esa pestaña: #gid=XXXXXX)
   GIDS: {
     Mantenimientos: "0",
-    Reparaciones_Programadas: "REEMPLAZAR",
-    Imagenes: "REEMPLAZAR",
-    Repuestos: "REEMPLAZAR",
-    Variables: "REEMPLAZAR",
-    Mediciones: "REEMPLAZAR",
-    Ordenes_de_Trabajo: "REEMPLAZAR",
-    Equipos: "REEMPLAZAR"
+    Reparaciones_Programadas: "628447192",
+    Imagenes: "661946164",
+    Repuestos: "1311935837",
+    Variables: "1551728370",
+    Mediciones: "1051972276",
+    Ordenes_de_Trabajo: "825527361",
+    Equipos: "1296755573"
   },
 
   // URL del Web App de Google Apps Script (para escrituras: altas, cambios de estado, mediciones)
