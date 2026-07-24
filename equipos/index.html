@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Equipos | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="../sigma-styles.css">
+<script src="../sigma-utils.js"></script>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head">
+    <h1>Equipos <span style="color:var(--steel-400);font-size:1rem;text-transform:none;font-family:var(--font-body);">(<span id="total-equipos">—</span> registrados)</span></h1>
+  </div>
+
+  <div class="filter-bar">
+    <div class="field">
+      <label>Buscar</label>
+      <input type="text" id="filtro-texto" placeholder="Código, máquina, modelo…">
+    </div>
+    <div class="field">
+      <label>Sector</label>
+      <select id="filtro-sector"><option value="">Todos</option></select>
+    </div>
+    <div class="field">
+      <label>Ubicación</label>
+      <select id="filtro-ubicacion"><option value="">Todas</option></select>
+    </div>
+  </div>
+
+  <div class="equipos-grid" id="equipos-grid">
+    <div class="empty-state">Cargando equipos…</div>
+  </div>
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("equipos", "../");
+
+let equipos = [];
+
+function poblarSelect(id, valores){
+  const sel = document.getElementById(id);
+  [...new Set(valores)].filter(Boolean).sort().forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    sel.appendChild(opt);
+  });
+}
+
+function pintarGrid(lista){
+  const grid = document.getElementById("equipos-grid");
+  if(!lista.length){
+    grid.innerHTML = `<div class="empty-state">Sin equipos que coincidan con el filtro.</div>`;
+    return;
+  }
+  grid.innerHTML = lista.map(e => `
+    <a class="plate equipo-card" href="${e.Codigo_SIGMA}.html">
+      <div class="codigo">${e.Codigo_SIGMA}</div>
+      <div class="nombre">${e.Maquina || "—"}</div>
+      <div class="meta">${e.Sector || ""}${e.Ubicacion ? " · " + e.Ubicacion : ""}</div>
+      <div class="meta">${e.Modelo || ""}</div>
+    </a>`).join("");
+}
+
+function aplicarFiltros(){
+  const texto = document.getElementById("filtro-texto").value.toLowerCase();
+  const sector = document.getElementById("filtro-sector").value;
+  const ubicacion = document.getElementById("filtro-ubicacion").value;
+
+  const filtrados = equipos.filter(e =>
+    (!texto || `${e.Codigo_SIGMA} ${e.Maquina} ${e.Modelo}`.toLowerCase().includes(texto)) &&
+    (!sector || e.Sector === sector) &&
+    (!ubicacion || e.Ubicacion === ubicacion)
+  );
+  pintarGrid(filtrados);
+}
+
+document.getElementById("filtro-texto").addEventListener("input", sigmaDebounce(aplicarFiltros, 180));
+document.getElementById("filtro-sector").addEventListener("change", aplicarFiltros);
+document.getElementById("filtro-ubicacion").addEventListener("change", aplicarFiltros);
+
+async function cargar(){
+  try{
+    equipos = await sigmaFetchTab("Equipos");
+    document.getElementById("total-equipos").textContent = equipos.length;
+    poblarSelect("filtro-sector", equipos.map(e => e.Sector));
+    poblarSelect("filtro-ubicacion", equipos.map(e => e.Ubicacion));
+    pintarGrid(equipos);
+  }catch(err){
+    document.getElementById("equipos-grid").innerHTML =
+      `<div class="empty-state">Error al cargar equipos: ${err.message}</div>`;
+  }
+}
+cargar();
+</script>
+</body>
+</html>
