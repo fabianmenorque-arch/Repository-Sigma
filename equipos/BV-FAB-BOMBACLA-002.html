@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — BV-FAB-BOMBACLA-002 | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="../sigma-styles.css">
+<script src="../sigma-utils.js"></script>
+</head>
+<body>
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head">
+    <h1 id="titulo-equipo">BV-FAB-BOMBACLA-002</h1>
+    <a class="btn secondary" href="index.html">← Volver a equipos</a>
+  </div>
+
+  <div class="plate panel" id="ficha-tecnica">
+    <div class="panel-head"><h2>Ficha técnica</h2></div>
+    <div class="grid-3" id="ficha-datos"><div class="empty-state">Cargando…</div></div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-equipo">
+    <div class="plate kpi-tile accent"><div class="kpi-label">Disponibilidad</div><div class="kpi-value">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">MTTR</div><div class="kpi-value">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">MTBF</div><div class="kpi-value">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">Intervenciones</div><div class="kpi-value">—</div></div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Cargar medición rápida</h2></div>
+    <form id="form-medicion">
+      <div class="field-row">
+        <div class="field">
+          <label for="med-variable">Variable</label>
+          <input type="text" id="med-variable" required placeholder="Ej: Temperatura, Vibración, Presión…">
+        </div>
+        <div class="field">
+          <label for="med-valor">Valor</label>
+          <input type="text" id="med-valor" required placeholder="Ej: 78.5">
+        </div>
+        <div class="field">
+          <label for="med-unidad">Unidad</label>
+          <input type="text" id="med-unidad" placeholder="Ej: °C, mm/s, bar…">
+        </div>
+      </div>
+      <button type="submit" id="btn-medicion">Registrar medición</button>
+    </form>
+  </div>
+
+  <div class="grid-2">
+    <div class="plate panel">
+      <div class="panel-head">
+        <h2>Órdenes de trabajo</h2>
+        <a class="btn" href="../ordenes.html">+ Nueva orden</a>
+      </div>
+      <div class="table-scroll">
+        <table class="sigma-table" id="tabla-ordenes-equipo">
+          <thead><tr><th>Nro</th><th>Descripción</th><th>Prioridad</th><th>Estado</th><th>Est. cierre</th></tr></thead>
+          <tbody><tr><td colspan="5" class="empty-state">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Repuestos</h2></div>
+      <div class="table-scroll">
+        <table class="sigma-table" id="tabla-repuestos">
+          <thead><tr><th>Repuesto</th><th>Código</th><th>Stock</th></tr></thead>
+          <tbody><tr><td colspan="3" class="empty-state">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Historial de mantenimientos</h2></div>
+    <div class="table-scroll">
+      <table class="sigma-table" id="tabla-mantenimientos">
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Duración (h)</th></tr></thead>
+        <tbody><tr><td colspan="4" class="empty-state">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Galería</h2></div>
+    <div class="gallery-grid" id="galeria"><div class="empty-state">Sin imágenes.</div></div>
+  </div>
+</div>
+
+<script>
+/* Este único dato cambia entre los 215 archivos generados */
+const CODIGO_EQUIPO = "BV-FAB-BOMBACLA-002";
+
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("equipos", "../");
+
+document.getElementById("form-medicion").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = document.getElementById("btn-medicion");
+  btn.disabled = true; btn.textContent = "Guardando…";
+
+  const unidad = document.getElementById("med-unidad").value;
+  const variable = document.getElementById("med-variable").value + (unidad ? ` (${unidad})` : "");
+
+  try{
+    await sigmaPost("registrar_medicion", {
+      Codigo_Equipo: CODIGO_EQUIPO,
+      Variable: variable,
+      Valor: document.getElementById("med-valor").value
+    });
+    sigmaToast("Medición registrada.");
+    e.target.reset();
+  }catch(err){
+    sigmaToast("Error al guardar la medición: " + err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Registrar medición";
+  }
+});
+
+async function cargarEquipo(){
+  try{
+    const [equipos, mantenimientos, repuestos, imagenes, ordenes] = await Promise.all([
+      sigmaFetchTab("Equipos").catch(()=>[]),
+      sigmaFetchTab("Mantenimientos").catch(()=>[]),
+      sigmaFetchTab("Repuestos").catch(()=>[]),
+      sigmaFetchTab("Imagenes").catch(()=>[]),
+      sigmaFetchTab("Ordenes_de_Trabajo").catch(()=>[])
+    ]);
+
+    const ficha = equipos.find(e => e.Codigo_SIGMA === CODIGO_EQUIPO);
+    const mantEquipo = mantenimientos.filter(m => m.Codigo_Equipo === CODIGO_EQUIPO);
+    const repEquipo = repuestos.filter(r => r.Codigo_Equipo === CODIGO_EQUIPO);
+    const imgEquipo = imagenes.filter(i => i.Codigo_Equipo === CODIGO_EQUIPO);
+    const ordEquipo = ordenes.filter(o => o.Codigo_Equipo === CODIGO_EQUIPO);
+
+    if(ficha){
+      document.getElementById("titulo-equipo").textContent = `${ficha.Codigo_SIGMA} — ${ficha.Maquina || ""}`;
+      document.getElementById("ficha-datos").innerHTML = `
+        <div><label>Sector</label><div>${ficha.Sector||"—"}</div></div>
+        <div><label>Ubicación</label><div>${ficha.Ubicacion||"—"}</div></div>
+        <div><label>Máquina</label><div>${ficha.Maquina||"—"}</div></div>
+        <div><label>Modelo</label><div>${ficha.Modelo||"—"}</div></div>
+        <div><label>Fabricante</label><div>${ficha.Fabricante||"—"}</div></div>
+        <div><label>Año</label><div>${ficha.Anio||"—"}</div></div>`;
+    }
+
+    const kpis = sigmaCalcularKPIs(mantEquipo)[CODIGO_EQUIPO] ||
+      {disponibilidad:100, mttr:0, mtbf:0, intervenciones:mantEquipo.length};
+    const tiles = document.querySelectorAll("#kpi-equipo .kpi-value");
+    tiles[0].textContent = kpis.disponibilidad + "%";
+    tiles[1].innerHTML = kpis.mttr + '<span class="kpi-unit">h</span>';
+    tiles[2].innerHTML = kpis.mtbf + '<span class="kpi-unit">h</span>';
+    tiles[3].textContent = kpis.intervenciones;
+
+    document.querySelector("#tabla-mantenimientos tbody").innerHTML = mantEquipo.length
+      ? mantEquipo.map(m => `<tr><td>${m.Fecha_Inicio||"—"}</td><td>${m.Tipo||"—"}</td><td>${m.Descripcion||"—"}</td><td>${m.Duracion_Horas||"—"}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="empty-state">Sin mantenimientos registrados.</td></tr>`;
+
+    document.querySelector("#tabla-repuestos tbody").innerHTML = repEquipo.length
+      ? repEquipo.map(r => `<tr><td>${r.Nombre||"—"}</td><td class="mono">${r.Codigo_Repuesto||"—"}</td><td>${r.Stock||"0"}</td></tr>`).join("")
+      : `<tr><td colspan="3" class="empty-state">Sin repuestos registrados.</td></tr>`;
+
+    document.querySelector("#tabla-ordenes-equipo tbody").innerHTML = ordEquipo.length
+      ? ordEquipo.map(o => `<tr><td class="mono">${o.Nro_Orden}</td><td>${o.Descripcion}</td><td>${sigmaBadge("prioridad",o.Prioridad)}</td><td>${sigmaBadge("estado",o.Estado)}</td><td>${o.Fecha_Est_Cierre||"—"}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="empty-state">Sin órdenes registradas.</td></tr>`;
+
+    const galeria = document.getElementById("galeria");
+    galeria.innerHTML = imgEquipo.length
+      ? imgEquipo.map(i => `<img src="${i.URL_Miniatura||i.URL}" data-full="${i.URL}" alt="${CODIGO_EQUIPO}">`).join("")
+      : `<div class="empty-state">Sin imágenes.</div>`;
+    sigmaInitGallery("#galeria");
+
+  }catch(err){
+    console.error(err);
+    sigmaToast("Error al cargar la ficha del equipo: " + err.message);
+  }
+}
+cargarEquipo();
+</script>
+</body>
+</html>
