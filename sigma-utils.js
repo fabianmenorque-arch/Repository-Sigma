@@ -25,7 +25,7 @@ const SIGMA_CONFIG = {
   },
 
   // URL del Web App de Google Apps Script (para escrituras: altas, cambios de estado, mediciones)
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbyJYyEwRAuD7aBcWmyYpU6_4AXOBjorLiHCBdKjkj2rNkSR1Ucclu545t1o-E5yyKRJ/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxg4g6QNX8AFAqJghZtQwA_Po99TcRNSyfSxOLKvNYWGtCX0oSeruylWj7GAQLd2hX-/exec",
 
   // Refresco automático del panel de mediciones en tiempo real (ms)
   MEDICIONES_REFRESH_MS: 30000
