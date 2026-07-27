@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Gestión | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="sigma-utils.js"></script>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head"><h1>Gestión de archivos y hojas</h1></div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Estado de las pestañas de Google Sheets</h2></div>
+    <div class="table-scroll">
+      <table class="sigma-table" id="tabla-hojas">
+        <thead><tr><th>Pestaña</th><th>Registros</th><th>Estado</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Exportar lista maestra de equipos</h2></div>
+    <p style="font-size:.85rem;color:var(--steel-400);">
+      Descarga el CSV con todos los equipos registrados en la pestaña
+      <em>Equipos</em>, listo para usar con
+      <code>equipos/generar_equipos.py</code> y crear las páginas individuales
+      que falten.
+    </p>
+    <button id="btn-exportar">Descargar equipos.csv</button>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Configuración activa</h2></div>
+    <div class="grid-2" style="font-size:.85rem;">
+      <div>
+        <label>Sheet ID</label>
+        <div class="mono" id="cfg-sheet">—</div>
+      </div>
+      <div>
+        <label>Apps Script URL</label>
+        <div class="mono" id="cfg-apps-script" style="word-break:break-all;">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("gestion");
+
+document.getElementById("cfg-sheet").textContent = SIGMA_CONFIG.SHEET_ID;
+document.getElementById("cfg-apps-script").textContent = SIGMA_CONFIG.APPS_SCRIPT_URL;
+
+const PESTAÑAS = Object.keys(SIGMA_CONFIG.GIDS);
+let equiposCache = [];
+
+async function chequearHojas(){
+  const tbody = document.querySelector("#tabla-hojas tbody");
+  tbody.innerHTML = PESTAÑAS.map(p => `
+    <tr id="fila-${p}">
+      <td>${p}</td><td>—</td>
+      <td><span class="status-line"><span class="dot"></span>Verificando…</span></td>
+      <td></td>
+    </tr>`).join("");
+
+  for(const pestaña of PESTAÑAS){
+    const fila = document.getElementById(`fila-${pestaña}`);
+    try{
+      const datos = await sigmaFetchTab(pestaña);
+      if(pestaña === "Equipos") equiposCache = datos;
+      fila.children[1].textContent = datos.length;
+      fila.children[2].innerHTML = `<span class="status-line"><span class="dot live"></span>OK</span>`;
+    }catch(err){
+      fila.children[1].textContent = "—";
+      fila.children[2].innerHTML = `<span class="status-line" style="color:var(--danger-500);"><span class="dot" style="background:var(--danger-500);"></span>Error</span>`;
+      fila.children[3].title = err.message;
+    }
+  }
+}
+chequearHojas();
+
+document.getElementById("btn-exportar").addEventListener("click", () => {
+  if(!equiposCache.length){ sigmaToast("Todavía no se cargó la pestaña Equipos."); return; }
+  const headers = Object.keys(equiposCache[0]);
+  const filas = equiposCache.map(e => headers.map(h => `"${(e[h]||"").replace(/"/g,'""')}"`).join(","));
+  const csv = [headers.join(","), ...filas].join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "equipos.csv";
+  a.click();
+});
+</script>
+</body>
+</html>
