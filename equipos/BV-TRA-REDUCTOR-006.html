@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — BV-TRA-REDUCTOR-006 | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="../sigma-styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="../sigma-utils.js"></script>
+</head>
+<body>
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head">
+    <h1 id="titulo-equipo">BV-TRA-REDUCTOR-006</h1>
+    <a class="btn secondary" href="index.html">← Volver a equipos</a>
+  </div>
+
+  <div class="plate panel" id="ficha-tecnica">
+    <div class="panel-head"><h2>Ficha técnica</h2></div>
+    <div class="grid-3" id="ficha-datos"><div class="empty-state">Cargando…</div></div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-equipo">
+    <div class="plate kpi-tile accent"><div class="kpi-label">Disponibilidad</div><div class="kpi-value">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">MTTR</div><div class="kpi-value">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">MTBF</div><div class="kpi-value">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">Intervenciones</div><div class="kpi-value">—</div></div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Cargar medición rápida</h2></div>
+    <form id="form-medicion">
+      <div class="field-row">
+        <div class="field">
+          <label for="med-variable">Variable</label>
+          <select id="med-variable" required>
+            <option value="">Cargando variables…</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="med-valor">Valor</label>
+          <input type="text" id="med-valor" required placeholder="Ej: 78.5">
+        </div>
+        <div class="field">
+          <label>Unidad</label>
+          <input type="text" id="med-unidad" readonly placeholder="—">
+        </div>
+      </div>
+      <div class="empty-state" id="sin-variables" style="display:none;padding:.6rem 0;text-align:left;">
+        Este equipo todavía no tiene variables configuradas. Agregalas en la
+        pestaña <strong>Variables</strong> del Sheet (columnas Codigo_Equipo,
+        Variable, Unidad) para poder elegirlas acá.
+      </div>
+      <button type="submit" id="btn-medicion">Registrar medición</button>
+    </form>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Evolución de mediciones</h2></div>
+    <div class="grid-2" id="charts-mediciones">
+      <div class="empty-state">Sin mediciones registradas todavía.</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="plate panel">
+      <div class="panel-head">
+        <h2>Órdenes de trabajo</h2>
+        <a class="btn" href="../ordenes.html">+ Nueva orden</a>
+      </div>
+      <div class="table-scroll">
+        <table class="sigma-table" id="tabla-ordenes-equipo">
+          <thead><tr><th>Nro</th><th>Descripción</th><th>Prioridad</th><th>Estado</th><th>Est. cierre</th></tr></thead>
+          <tbody><tr><td colspan="5" class="empty-state">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Repuestos</h2></div>
+      <div class="table-scroll">
+        <table class="sigma-table" id="tabla-repuestos">
+          <thead><tr><th>Repuesto</th><th>Designación</th><th>Código</th><th>Stock</th></tr></thead>
+          <tbody><tr><td colspan="4" class="empty-state">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Historial de mantenimientos</h2></div>
+    <div class="table-scroll">
+      <table class="sigma-table" id="tabla-mantenimientos">
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Duración (h)</th></tr></thead>
+        <tbody><tr><td colspan="4" class="empty-state">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Galería</h2></div>
+    <div class="gallery-grid" id="galeria"><div class="empty-state">Sin imágenes.</div></div>
+  </div>
+</div>
+
+<script>
+/* Este único dato cambia entre los 215 archivos generados */
+const CODIGO_EQUIPO = "BV-TRA-REDUCTOR-006";
+
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("equipos", "../");
+
+let variablesEquipo = [];
+
+function poblarVariables(variables){
+  const select = document.getElementById("med-variable");
+  const sinVariables = document.getElementById("sin-variables");
+  const btn = document.getElementById("btn-medicion");
+
+  if(!variables.length){
+    select.innerHTML = `<option value="">— Sin variables configuradas —</option>`;
+    sinVariables.style.display = "block";
+    btn.disabled = true;
+    return;
+  }
+
+  sinVariables.style.display = "none";
+  btn.disabled = false;
+  select.innerHTML = variables.map(v => `<option value="${v.Variable}" data-unidad="${v.Unidad||""}">${v.Variable}</option>`).join("");
+  document.getElementById("med-unidad").value = variables[0].Unidad || "";
+}
+
+document.getElementById("med-variable").addEventListener("change", e => {
+  const opt = e.target.selectedOptions[0];
+  document.getElementById("med-unidad").value = opt ? (opt.dataset.unidad || "") : "";
+});
+
+document.getElementById("form-medicion").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = document.getElementById("btn-medicion");
+  btn.disabled = true; btn.textContent = "Guardando…";
+
+  try{
+    await sigmaPost("registrar_medicion", {
+      Codigo_Equipo: CODIGO_EQUIPO,
+      Variable: document.getElementById("med-variable").value,
+      Unidad: document.getElementById("med-unidad").value,
+      Valor: document.getElementById("med-valor").value
+    });
+    sigmaToast("Medición registrada.");
+    document.getElementById("med-valor").value = "";
+  }catch(err){
+    sigmaToast("Error al guardar la medición: " + err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Registrar medición";
+  }
+});
+
+function pintarGraficosMediciones(medEquipo){
+  const contenedor = document.getElementById("charts-mediciones");
+  if(!medEquipo.length){
+    contenedor.innerHTML = `<div class="empty-state">Sin mediciones registradas todavía.</div>`;
+    return;
+  }
+
+  const porVariable = {};
+  medEquipo.forEach(m => {
+    const nombre = m.Variable || "Sin nombre";
+    if(!porVariable[nombre]) porVariable[nombre] = [];
+    porVariable[nombre].push(m);
+  });
+
+  contenedor.innerHTML = Object.keys(porVariable).map((v, i) => `
+    <div class="plate panel" style="margin-bottom:0;">
+      <div class="panel-head"><h3>${v}${porVariable[v][0].Unidad ? " ("+porVariable[v][0].Unidad+")" : ""}</h3></div>
+      <div style="position:relative;height:220px;"><canvas id="chart-var-${i}"></canvas></div>
+    </div>`).join("");
+
+  Object.entries(porVariable).forEach(([nombre, registros], i) => {
+    const ordenados = registros
+      .map(r => ({...r, fecha: sigmaParseDate(r.Fecha_Hora)}))
+      .filter(r => r.fecha)
+      .sort((a,b) => a.fecha - b.fecha);
+
+    new Chart(document.getElementById(`chart-var-${i}`), {
+      type: "line",
+      data: {
+        labels: ordenados.map(r => r.fecha.toLocaleString("es-AR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})),
+        datasets: [{
+          label: nombre,
+          data: ordenados.map(r => parseFloat(r.Valor)),
+          borderColor: "#d98f2b",
+          backgroundColor: "rgba(217,143,43,.15)",
+          tension: .25,
+          fill: true,
+          pointRadius: 3
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: "#8b96a1", maxRotation: 45, minRotation: 0 }, grid: { color: "#39434c" } },
+          y: { ticks: { color: "#8b96a1" }, grid: { color: "#39434c" } }
+        }
+      }
+    });
+  });
+}
+
+async function cargarEquipo(){
+  try{
+    const [equipos, mantenimientos, repuestos, imagenes, ordenes, variables, mediciones] = await Promise.all([
+      sigmaFetchTab("Equipos").catch(()=>[]),
+      sigmaFetchTab("Mantenimientos").catch(()=>[]),
+      sigmaFetchTab("Repuestos").catch(()=>[]),
+      sigmaFetchTab("Imagenes").catch(()=>[]),
+      sigmaFetchTab("Ordenes_de_Trabajo").catch(()=>[]),
+      sigmaFetchTab("Variables").catch(()=>[]),
+      sigmaFetchTab("Mediciones").catch(()=>[])
+    ]);
+
+    const ficha = equipos.find(e => e.Codigo_SIGMA === CODIGO_EQUIPO);
+    const mantEquipo = mantenimientos.filter(m => m.Codigo_Equipo === CODIGO_EQUIPO);
+    const repEquipo = repuestos.filter(r => r.Codigo_Equipo === CODIGO_EQUIPO);
+    const imgEquipo = imagenes.filter(i => i.Codigo_Equipo === CODIGO_EQUIPO);
+    const ordEquipo = ordenes.filter(o => o.Codigo_Equipo === CODIGO_EQUIPO);
+    variablesEquipo = variables.filter(v => v.Codigo_Equipo === CODIGO_EQUIPO);
+    const medEquipo = mediciones.filter(m => m.Codigo_Equipo === CODIGO_EQUIPO);
+
+    poblarVariables(variablesEquipo);
+    pintarGraficosMediciones(medEquipo);
+
+    if(ficha){
+      document.getElementById("titulo-equipo").textContent = `${ficha.Codigo_SIGMA} — ${ficha.Maquina || ""}`;
+      document.getElementById("ficha-datos").innerHTML = `
+        <div><label>Sector</label><div>${ficha.Sector||"—"}</div></div>
+        <div><label>Ubicación</label><div>${ficha.Ubicacion||"—"}</div></div>
+        <div><label>Máquina</label><div>${ficha.Maquina||"—"}</div></div>
+        <div><label>Modelo</label><div>${ficha.Modelo||"—"}</div></div>
+        <div><label>Fabricante</label><div>${ficha.Fabricante||"—"}</div></div>
+        <div><label>Año</label><div>${ficha.Anio||"—"}</div></div>`;
+    }
+
+    const kpis = sigmaCalcularKPIs(mantEquipo)[CODIGO_EQUIPO] ||
+      {disponibilidad:100, mttr:0, mtbf:0, intervenciones:mantEquipo.length};
+    const tiles = document.querySelectorAll("#kpi-equipo .kpi-value");
+    tiles[0].textContent = kpis.disponibilidad + "%";
+    tiles[1].innerHTML = kpis.mttr + '<span class="kpi-unit">h</span>';
+    tiles[2].innerHTML = kpis.mtbf + '<span class="kpi-unit">h</span>';
+    tiles[3].textContent = kpis.intervenciones;
+
+    document.querySelector("#tabla-mantenimientos tbody").innerHTML = mantEquipo.length
+      ? mantEquipo.map(m => {
+          const inicio = new Date(m.Fecha_Inicio);
+          const fin = new Date(m.Fecha_Fin);
+          const fechaVisible = isNaN(inicio) ? (m.Fecha_Inicio||"—") : inicio.toLocaleString("es-AR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
+          const duracion = m.Duracion_Horas || (!isNaN(inicio) && !isNaN(fin) ? (Math.max(0,(fin-inicio)/36e5)).toFixed(1) : "—");
+          return `<tr><td>${fechaVisible}</td><td>${m.Tipo||"—"}</td><td>${m.Descripcion||"—"}</td><td>${duracion}</td></tr>`;
+        }).join("")
+      : `<tr><td colspan="4" class="empty-state">Sin mantenimientos registrados.</td></tr>`;
+
+    document.querySelector("#tabla-repuestos tbody").innerHTML = repEquipo.length
+      ? repEquipo.map(r => `<tr><td>${r.Nombre||"—"}</td><td>${r.Designacion||"—"}</td><td class="mono">${r.Codigo_Repuesto||"—"}</td><td>${r.Stock||"0"}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="empty-state">Sin repuestos registrados.</td></tr>`;
+
+    document.querySelector("#tabla-ordenes-equipo tbody").innerHTML = ordEquipo.length
+      ? ordEquipo.map(o => `<tr><td class="mono">${o.Nro_Orden}<br><a href="../informes.html?orden=${o.Nro_Orden}" style="font-size:.7rem;">Ver informe</a></td><td>${o.Descripcion}</td><td>${sigmaBadge("prioridad",o.Prioridad)}</td><td>${sigmaBadge("estado",o.Estado)}</td><td>${sigmaFmtFechaHora(o.Fecha_Inicio)}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="empty-state">Sin órdenes registradas.</td></tr>`;
+
+    const galeria = document.getElementById("galeria");
+    galeria.innerHTML = imgEquipo.length
+      ? imgEquipo.map(i => `<img src="${i.URL_Miniatura||i.URL}" data-full="${i.URL}" alt="${CODIGO_EQUIPO}">`).join("")
+      : `<div class="empty-state">Sin imágenes.</div>`;
+    sigmaInitGallery("#galeria");
+
+  }catch(err){
+    console.error(err);
+    sigmaToast("Error al cargar la ficha del equipo: " + err.message);
+  }
+}
+cargarEquipo();
+</script>
+</body>
+</html>
