@@ -1,0 +1,39 @@
+<svg viewBox="0 0 320 420" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&amp;family=IBM+Plex+Sans:wght@500&amp;display=swap');
+    .word{ font-family:'Big Shoulders Display',sans-serif; font-weight:800; }
+    .caption{ font-family:'IBM Plex Sans',sans-serif; font-weight:500; letter-spacing:.16em; }
+  </style>
+  <defs>
+    <linearGradient id="plateGradV" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#242c33"/>
+      <stop offset="100%" stop-color="#1b2126"/>
+    </linearGradient>
+    <linearGradient id="sigmaGradV" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f0ab4a"/>
+      <stop offset="100%" stop-color="#d98f2b"/>
+    </linearGradient>
+    <radialGradient id="rivetGradV" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#9aa4ac"/>
+      <stop offset="60%" stop-color="#4a545c"/>
+      <stop offset="100%" stop-color="#222"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="320" height="420" fill="#14181c"/>
+
+  <!-- Placa del icono, centrada -->
+  <rect x="60" y="40" width="200" height="200" rx="24" fill="url(#plateGradV)" stroke="#d98f2b" stroke-width="3"/>
+  <circle cx="84" cy="64" r="7.5" fill="url(#rivetGradV)"/>
+  <circle cx="236" cy="64" r="7.5" fill="url(#rivetGradV)"/>
+  <circle cx="84" cy="216" r="7.5" fill="url(#rivetGradV)"/>
+  <circle cx="236" cy="216" r="7.5" fill="url(#rivetGradV)"/>
+  <path d="M 210 96 L 110 96 L 168 140 L 110 184 L 210 184"
+        fill="none" stroke="url(#sigmaGradV)" stroke-width="18"
+        stroke-linecap="square" stroke-linejoin="miter"/>
+
+  <!-- Wordmark -->
+  <text x="160" y="300" class="word" font-size="56" fill="#ffffff" text-anchor="middle" letter-spacing="2">SIGMA</text>
+  <rect x="90" y="316" width="140" height="3" fill="#d98f2b"/>
+  <text x="160" y="342" class="caption" font-size="14" fill="#8b96a1" text-anchor="middle">INGENIO BELLA VISTA</text>
+</svg>
