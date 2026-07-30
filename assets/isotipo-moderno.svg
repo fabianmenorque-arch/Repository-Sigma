@@ -1,0 +1,17 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="glow" x1="20%" y1="10%" x2="90%" y2="95%">
+      <stop offset="0%" stop-color="#ffb454"/>
+      <stop offset="100%" stop-color="#d9622b"/>
+    </linearGradient>
+    <radialGradient id="blob" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#241f1a" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#241f1a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Trazo continuo, extremos y ángulos redondeados -->
+  <path d="M 154 56 L 46 56 L 112 100 L 46 144 L 154 144"
+        fill="none" stroke="url(#glow)" stroke-width="20"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
