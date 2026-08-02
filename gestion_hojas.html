@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Gestión | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="sigma-utils.js"></script>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head"><h1>Gestión</h1></div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Tareas de gestión</h2></div>
+    <div class="filter-bar">
+      <div class="field">
+        <label>Buscar</label>
+        <input type="text" id="filtro-texto-tareas" placeholder="Equipo, descripción, responsable…">
+      </div>
+      <div class="field">
+        <label>Tipo</label>
+        <select id="filtro-tipo-tareas">
+          <option value="">Todos</option>
+          <option>Cotización de reparación</option>
+          <option>Compra de equipo nuevo</option>
+          <option>Solicitud de repuestos</option>
+          <option>Consulta de estado</option>
+          <option>Otro</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Estado</label>
+        <select id="filtro-estado-tareas">
+          <option value="">Todos</option>
+          <option>Pendiente</option>
+          <option>En gestión</option>
+          <option>Resuelta</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="sigma-table" id="tabla-tareas-globales">
+        <thead><tr><th>Equipo</th><th>Tipo</th><th>Descripción</th><th>Responsable</th><th style="min-width:140px;">Estado</th><th></th></tr></thead>
+        <tbody><tr><td colspan="6" class="empty-state">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Estado de las pestañas de Google Sheets</h2></div>
+    <div class="table-scroll">
+      <table class="sigma-table" id="tabla-hojas">
+        <thead><tr><th>Pestaña</th><th>Registros</th><th>Estado</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Exportar lista maestra de equipos</h2></div>
+    <p style="font-size:.85rem;color:var(--steel-400);">
+      Descarga el CSV con todos los equipos registrados en la pestaña
+      <em>Equipos</em>, listo para usar con
+      <code>equipos/generar_equipos.py</code> y crear las páginas individuales
+      que falten.
+    </p>
+    <button id="btn-exportar">Descargar equipos.csv</button>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Configuración activa</h2></div>
+    <div class="grid-2" style="font-size:.85rem;">
+      <div>
+        <label>Sheet ID</label>
+        <div class="mono" id="cfg-sheet">—</div>
+      </div>
+      <div>
+        <label>Apps Script URL</label>
+        <div class="mono" id="cfg-apps-script" style="word-break:break-all;">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("gestion");
+
+document.getElementById("cfg-sheet").textContent = SIGMA_CONFIG.SHEET_ID;
+document.getElementById("cfg-apps-script").textContent = SIGMA_CONFIG.APPS_SCRIPT_URL;
+
+/* ---------- Tareas de gestión ---------- */
+let tareas = [], ordenesCache = [], equiposPorCodigoTareas = {};
+const ESTADOS_TAREA = ["Pendiente", "En gestión", "Resuelta"];
+
+function claseEstadoTarea(valor){
+  return (valor||"").toLowerCase().replace(/\s+/g,"-").normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+
+async function cargarTareas(){
+  try{
+    [tareas, ordenesCache] = await Promise.all([
+      sigmaFetchTab("Gestion_Tareas").catch(()=>[]),
+      sigmaFetchTab("Ordenes_de_Trabajo").catch(()=>[])
+    ]);
+    const equiposTab = await sigmaFetchTab("Equipos").catch(()=>[]);
+    equiposPorCodigoTareas = {};
+    equiposTab.forEach(e => { equiposPorCodigoTareas[e.Codigo_SIGMA] = e; });
+    aplicarFiltrosTareas();
+  }catch(err){
+    document.querySelector("#tabla-tareas-globales tbody").innerHTML =
+      `<tr><td colspan="6" class="empty-state">Error al cargar: ${err.message}</td></tr>`;
+  }
+}
+
+function pintarTablaTareas(lista){
+  const tbody = document.querySelector("#tabla-tareas-globales tbody");
+  if(!lista.length){
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Sin tareas que coincidan.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = lista.map(t => {
+    const eq = equiposPorCodigoTareas[t.Codigo_Equipo];
+    const nombreEq = eq && eq.Maquina ? eq.Maquina : t.Codigo_Equipo;
+    return `
+    <tr>
+      <td class="equipo-celda">
+        <a class="nombre" href="equipos/${sigmaRutaEquipo(t.Codigo_Equipo)}">${nombreEq}</a>
+        ${eq && eq.Maquina ? `<span class="codigo">${t.Codigo_Equipo}</span>` : ""}
+      </td>
+      <td>${t.Tipo||"—"}</td>
+      <td>${t.Descripcion||"—"}</td>
+      <td>${t.Responsable||"—"}</td>
+      <td>
+        <select class="select-estado estado-${claseEstadoTarea(t.Estado)}" onchange="cambiarEstadoTareaGlobal('${t.Nro_Tarea}', this.value, this)">
+          ${ESTADOS_TAREA.map(s => `<option value="${s}" ${s===t.Estado?"selected":""}>${s}</option>`).join("")}
+        </select>
+      </td>
+      <td><a href="informes.html?orden=${t.Nro_Orden}" style="font-size:.78rem;">Ver informe</a></td>
+    </tr>`;
+  }).join("");
+}
+
+function aplicarFiltrosTareas(){
+  const texto = document.getElementById("filtro-texto-tareas").value.toLowerCase();
+  const tipo = document.getElementById("filtro-tipo-tareas").value;
+  const estado = document.getElementById("filtro-estado-tareas").value;
+
+  const filtradas = tareas.filter(t => {
+    const eq = equiposPorCodigoTareas[t.Codigo_Equipo];
+    const nombreEq = (eq && eq.Maquina) || t.Codigo_Equipo || "";
+    const coincideTexto = !texto || `${nombreEq} ${t.Descripcion} ${t.Responsable}`.toLowerCase().includes(texto);
+    return coincideTexto && (!tipo || t.Tipo === tipo) && (!estado || t.Estado === estado);
+  }).sort((a,b) => (b.Fecha_Creacion||"").localeCompare(a.Fecha_Creacion||""));
+
+  pintarTablaTareas(filtradas);
+}
+
+async function cambiarEstadoTareaGlobal(nroTarea, nuevoEstado, selectEl){
+  const tarea = tareas.find(t => t.Nro_Tarea === nroTarea);
+  if(!tarea) return;
+  const anterior = tarea.Estado;
+  tarea.Estado = nuevoEstado;
+  if(selectEl) selectEl.className = "select-estado estado-" + claseEstadoTarea(nuevoEstado);
+  try{
+    await sigmaPost("actualizar_tarea_gestion", {Nro_Tarea: nroTarea, Estado: nuevoEstado});
+    sigmaToast(`Tarea → ${nuevoEstado}`);
+  }catch(err){
+    tarea.Estado = anterior;
+    aplicarFiltrosTareas();
+    sigmaToast("No se pudo actualizar: " + err.message);
+  }
+}
+window.cambiarEstadoTareaGlobal = cambiarEstadoTareaGlobal;
+
+document.getElementById("filtro-texto-tareas").addEventListener("input", sigmaDebounce(aplicarFiltrosTareas, 180));
+document.getElementById("filtro-tipo-tareas").addEventListener("change", aplicarFiltrosTareas);
+document.getElementById("filtro-estado-tareas").addEventListener("change", aplicarFiltrosTareas);
+
+cargarTareas();
+
+const PESTAÑAS = Object.keys(SIGMA_CONFIG.GIDS);
+let equiposCache = [];
+
+async function chequearHojas(){
+  const tbody = document.querySelector("#tabla-hojas tbody");
+  tbody.innerHTML = PESTAÑAS.map(p => `
+    <tr id="fila-${p}">
+      <td>${p}</td><td>—</td>
+      <td><span class="status-line"><span class="dot"></span>Verificando…</span></td>
+      <td></td>
+    </tr>`).join("");
+
+  for(const pestaña of PESTAÑAS){
+    const fila = document.getElementById(`fila-${pestaña}`);
+    try{
+      const datos = await sigmaFetchTab(pestaña);
+      if(pestaña === "Equipos") equiposCache = datos;
+      fila.children[1].textContent = datos.length;
+      fila.children[2].innerHTML = `<span class="status-line"><span class="dot live"></span>OK</span>`;
+    }catch(err){
+      fila.children[1].textContent = "—";
+      fila.children[2].innerHTML = `<span class="status-line" style="color:var(--danger-500);"><span class="dot" style="background:var(--danger-500);"></span>Error</span>`;
+      fila.children[3].title = err.message;
+    }
+  }
+}
+chequearHojas();
+
+document.getElementById("btn-exportar").addEventListener("click", () => {
+  if(!equiposCache.length){ sigmaToast("Todavía no se cargó la pestaña Equipos."); return; }
+  const headers = Object.keys(equiposCache[0]);
+  const filas = equiposCache.map(e => headers.map(h => `"${(e[h]||"").replace(/"/g,'""')}"`).join(","));
+  const csv = [headers.join(","), ...filas].join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "equipos.csv";
+  a.click();
+});
+</script>
+</body>
+</html>
