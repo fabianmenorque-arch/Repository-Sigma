@@ -128,7 +128,7 @@ function pintarTablaTareas(lista){
     return `
     <tr>
       <td class="equipo-celda">
-        <a class="nombre" href="equipos/${t.Codigo_Equipo}.html">${nombreEq}</a>
+        <a class="nombre" href="equipos/${sigmaRutaEquipo(t.Codigo_Equipo)}">${nombreEq}</a>
         ${eq && eq.Maquina ? `<span class="codigo">${t.Codigo_Equipo}</span>` : ""}
       </td>
       <td>${t.Tipo||"—"}</td>

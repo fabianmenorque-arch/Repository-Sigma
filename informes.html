@@ -437,7 +437,7 @@ function cargarInforme(nroOrden){
 
   document.getElementById("inf-nro").textContent = o.Nro_Orden;
   document.getElementById("inf-equipo").innerHTML =
-    `<a href="equipos/${o.Codigo_Equipo}.html">${nombreEquipo(o.Codigo_Equipo) || o.Codigo_Equipo}</a>`;
+    `<a href="equipos/${sigmaRutaEquipo(o.Codigo_Equipo)}">${nombreEquipo(o.Codigo_Equipo) || o.Codigo_Equipo}</a>`;
   document.getElementById("inf-estado").innerHTML = sigmaBadge("estado", o.Estado);
   document.getElementById("inf-tipo").textContent = o.Tipo || "—";
   document.getElementById("inf-prioridad").innerHTML = sigmaBadge("prioridad", o.Prioridad);

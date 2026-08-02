@@ -288,7 +288,7 @@ function pintarTablaOrdenes(lista){
     <tr>
       <td class="mono">${o.Nro_Orden}<br><a href="informes.html?orden=${o.Nro_Orden}" style="font-size:.7rem;">Ver informe</a></td>
       <td class="equipo-celda">
-        <a class="nombre" href="equipos/${o.Codigo_Equipo}.html">${nombre || o.Codigo_Equipo}</a>
+        <a class="nombre" href="equipos/${sigmaRutaEquipo(o.Codigo_Equipo)}">${nombre || o.Codigo_Equipo}</a>
         ${nombre ? `<span class="codigo">${o.Codigo_Equipo}</span>` : ""}
       </td>
       <td>${o.Descripcion}</td>
