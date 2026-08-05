@@ -96,7 +96,7 @@ async function sigmaPost(action, payload){
 
 /* ---------------------------------------------------------------
    4. CÁLCULO DE KPIs — MTTR / MTBF / Disponibilidad
-   Espera registros de Mantenimientos con estas columnas:
+   Espera registros de Ordenes_de_Trabajo con estas columnas:
    Codigo_Equipo, Tipo (preventivo/predictivo/correctivo),
    Fecha_Inicio, Fecha_Fin (o Duracion_Horas), Estado
    --------------------------------------------------------------- */
@@ -123,13 +123,13 @@ function sigmaFmtFechaHora(valor){
 
 /**
  * Calcula MTTR, MTBF y Disponibilidad por equipo a partir del historial
- * de mantenimientos. horizonHoras = ventana de tiempo total considerada
+ * de Ordenes_de_Trabajo. horizonHoras = ventana de tiempo total considerada
  * (por defecto 720h = 30 días) para el cálculo de disponibilidad.
  */
-function sigmaCalcularKPIs(mantenimientos, horizonHoras = 720){
+function sigmaCalcularKPIs(Ordenes_de_Trabajo, horizonHoras = 720){
   const porEquipo = {};
 
-  mantenimientos.forEach(m => {
+  Ordenes_de_Trabajo.forEach(m => {
     const cod = m.Codigo_Equipo;
     if(!cod) return;
     if(!porEquipo[cod]) porEquipo[cod] = {correctivos:[], todos:[]};
@@ -165,9 +165,9 @@ function sigmaCalcularKPIs(mantenimientos, horizonHoras = 720){
   return resultado;
 }
 
-function sigmaConteoPorTipo(mantenimientos){
+function sigmaConteoPorTipo(Ordenes_de_Trabajo){
   const conteo = {preventivo:0, predictivo:0, correctivo:0, otro:0};
-  mantenimientos.forEach(m => {
+  Ordenes_de_Trabajo.forEach(m => {
     const t = (m.Tipo || "").toLowerCase();
     if(t.startsWith("prev")) conteo.preventivo++;
     else if(t.startsWith("pred")) conteo.predictivo++;
