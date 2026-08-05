@@ -100,7 +100,7 @@ function pintarKPIsGlobales(kpisPorEquipo, Ordenes_de_Trabajo){
   tiles[0].textContent = fmtHoras(dispProm) + "%";
   tiles[1].innerHTML = fmtHoras(mttrProm) + '<span class="kpi-unit">h</span>';
   tiles[2].innerHTML = fmtHoras(mtbfProm) + '<span class="kpi-unit">h</span>';
-  tiles[3].textContent = mantenimientos.length;
+  tiles[3].textContent = Ordenes_de_Trabajo.length;
 }
 
 function pintarTablaKPIs(kpisPorEquipo, filtro=""){
