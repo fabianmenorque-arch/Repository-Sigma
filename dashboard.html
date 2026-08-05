@@ -45,7 +45,7 @@
 
   <div class="grid-2">
     <div class="plate panel">
-      <div class="panel-head"><h2>Mantenimientos por tipo</h2></div>
+      <div class="panel-head"><h2>Ordenes_de_Trabajo por tipo</h2></div>
       <div class="chart-box"><canvas id="chart-tipo"></canvas></div>
     </div>
     <div class="plate panel">
@@ -89,7 +89,7 @@ let equiposPorCodigo = {};
 
 function fmtHoras(h){ return h.toLocaleString("es-AR",{maximumFractionDigits:1}); }
 
-function pintarKPIsGlobales(kpisPorEquipo, mantenimientos){
+function pintarKPIsGlobales(kpisPorEquipo, Ordenes_de_Trabajo){
   const arr = Object.values(kpisPorEquipo);
   const n = arr.length || 1;
   const dispProm = arr.reduce((s,k)=>s+k.disponibilidad,0)/n;
@@ -250,18 +250,18 @@ function pintarMediciones(mediciones){
 
 async function cargarDashboard(){
   try{
-    const [mantenimientos, mediciones, equiposLista] = await Promise.all([
-      sigmaFetchTab("Mantenimientos"),
+    const [Ordenes_de_Trabajo, mediciones, equiposLista] = await Promise.all([
+      sigmaFetchTab("Ordenes_de_Trabajo"),
       sigmaFetchTab("Mediciones").catch(()=>[]),
       sigmaFetchTab("Equipos").catch(()=>[])
     ]);
     equiposPorCodigo = {};
     equiposLista.forEach(e => { equiposPorCodigo[e.Codigo_SIGMA] = e; });
 
-    kpisPorEquipo = sigmaCalcularKPIs(mantenimientos);
-    pintarKPIsGlobales(kpisPorEquipo, mantenimientos);
+    kpisPorEquipo = sigmaCalcularKPIs(Ordenes_de_Trabajo);
+    pintarKPIsGlobales(kpisPorEquipo, Ordenes_de_Trabajo);
     pintarTablaKPIs(kpisPorEquipo);
-    pintarChartTipo(sigmaConteoPorTipo(mantenimientos));
+    pintarChartTipo(sigmaConteoPorTipo(Ordenes_de_Trabajo));
     pintarChartPareto(sigmaPareto(kpisPorEquipo, 10), equiposPorCodigo);
     pintarMediciones(mediciones);
 
