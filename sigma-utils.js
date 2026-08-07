@@ -22,8 +22,8 @@ const SIGMA_CONFIG = {
     Mediciones: "1051972276",
     Ordenes_de_Trabajo: "825527361",
     Equipos: "1296755573",
-    Gestion_Tareas: "REEMPLAZAR",
-    Avances_Orden: "REEMPLAZAR"
+    Gestion_Tareas: "1475821035",
+    Avances_Orden: "1691834187"
   },
 
   // URL del Web App de Google Apps Script (para escrituras: altas, cambios de estado, mediciones)
