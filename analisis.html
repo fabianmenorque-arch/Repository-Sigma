@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Análisis | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+<script src="sigma-utils.js"></script>
+<style>
+  .subida-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-bottom:1rem;}
+  .subida-caja{
+    border:1.5px dashed var(--line); border-radius:var(--radius-sm);
+    padding:1.1rem; text-align:center; cursor:pointer; transition:border-color .15s;
+  }
+  .subida-caja:hover, .subida-caja.lista{border-color:var(--amber-500);}
+  .subida-caja input{display:none;}
+  .subida-caja .nombre-archivo{font-size:.78rem;color:var(--amber-500);margin-top:.5rem;word-break:break-all;}
+  .subida-caja .icono{font-size:1.6rem;color:var(--steel-400);}
+
+  table.tabla-revision td, table.tabla-revision th{vertical-align:middle;}
+  table.tabla-revision input[type="text"]{max-width:150px;}
+  .chip-unidad{font-size:.72rem;color:var(--steel-400);}
+
+  .metricas-check{display:flex;gap:.8rem;flex-wrap:wrap;margin-bottom:1.2rem;}
+  .metricas-check label{
+    display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--steel-200);
+    background:var(--steel-900);border:1px solid var(--line);border-radius:999px;padding:.4rem .9rem;
+    cursor:pointer;text-transform:none;font-weight:500;
+  }
+  .metricas-check input{width:auto;margin:0;}
+  .chart-card{margin-bottom:1.3rem;}
+  .chart-box-analisis{position:relative;height:220px;}
+</style>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head">
+    <h1>SIGMA Análisis</h1>
+    <div class="status-line" id="estado-carga"></div>
+  </div>
+
+  <!-- Carga y extracción -->
+  <div class="plate panel">
+    <div class="panel-head"><h2>Cargar parte diario (PDF)</h2></div>
+    <p style="font-size:.8rem;color:var(--steel-400);margin:0 0 1rem;">
+      Subí las hojas del parte diario de fábrica. Los datos se leen directo
+      del PDF (tiene que tener texto real, no ser un escaneo/foto) — después
+      podés revisar y corregir cada valor antes de guardarlo.
+    </p>
+
+    <div class="subida-grid">
+      <label class="subida-caja" id="caja-hoja1">
+        <div class="icono">📄</div>
+        <div>Hoja 1 — Parte de fábrica</div>
+        <div class="nombre-archivo" id="nombre-hoja1"></div>
+        <input type="file" accept=".pdf" id="input-hoja1">
+      </label>
+      <label class="subida-caja" id="caja-hoja2">
+        <div class="icono">📄</div>
+        <div>Hoja 2 — Análisis de bagazo</div>
+        <div class="nombre-archivo" id="nombre-hoja2"></div>
+        <input type="file" accept=".pdf" id="input-hoja2">
+      </label>
+    </div>
+
+    <div id="bloque-revision" style="display:none;">
+      <div class="field" style="max-width:220px;">
+        <label for="fecha-parte">Fecha del parte</label>
+        <input type="date" id="fecha-parte">
+      </div>
+
+      <div class="table-scroll" style="margin-top:1rem;">
+        <table class="sigma-table tabla-revision">
+          <thead><tr><th style="width:40px;"></th><th>Dato</th><th>Valor</th><th>Unidad</th></tr></thead>
+          <tbody id="tbody-revision"></tbody>
+        </table>
+      </div>
+
+      <button id="btn-guardar-analisis" style="margin-top:1rem;">Guardar seleccionados</button>
+    </div>
+  </div>
+
+  <!-- Gráficos -->
+  <div class="plate panel">
+    <div class="panel-head"><h2>Gráficos</h2></div>
+    <div class="metricas-check" id="metricas-check"></div>
+    <div id="graficos-cont"><div class="empty-state">Elegí uno o más datos arriba para graficarlos.</div></div>
+  </div>
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("analisis");
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+
+/* ---------- Config de métricas ---------- */
+const METRICAS = [
+  {clave:"Molienda Bruta/Día", unidad:"Kg", calculada:false},
+  {clave:"Bagazo Kgs",         unidad:"Kg", calculada:false},
+  {clave:"Bagazo - Pol",       unidad:"%",  calculada:false},
+  {clave:"Bagazo - Humedad",   unidad:"%",  calculada:false},
+  {clave:"Azúcar Perdida",     unidad:"Kg", calculada:true} // = Bagazo Kgs x (Bagazo-Pol/100)
+];
+
+let datosHoja1 = {}, datosHoja2 = {};
+let analisisGuardados = [];
+
+/* ---------- Extracción posicional del PDF (pdf.js) ---------- */
+function agruparFilas(items, tolerancia=3){
+  const usados = new Set();
+  const filas = [];
+  items.forEach((it, i) => {
+    if(usados.has(i)) return;
+    const fila = [it];
+    usados.add(i);
+    items.forEach((it2, j) => {
+      if(!usados.has(j) && Math.abs(it2.y - it.y) <= tolerancia){
+        fila.push(it2); usados.add(j);
+      }
+    });
+    fila.sort((a,b) => a.x - b.x);
+    filas.push(fila);
+  });
+  filas.sort((a,b) => b[0].y - a[0].y);
+  return filas;
+}
+
+function esNumero(str){
+  return /^-?[\d.,]+%?$/.test((str||"").trim()) && (str||"").trim() !== "";
+}
+
+function numeroCercano(fila, xObjetivo){
+  let mejor=null, mejorDist=Infinity;
+  fila.forEach(it => {
+    if(esNumero(it.str)){
+      const d = Math.abs(it.x - xObjetivo);
+      if(d < mejorDist){ mejorDist = d; mejor = it.str.trim(); }
+    }
+  });
+  return mejor;
+}
+
+async function extraerItemsPDF(arrayBuffer){
+  const doc = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  const page = await doc.getPage(1);
+  const contenido = await page.getTextContent();
+  return contenido.items
+    .map(it => ({str: it.str, x: it.transform[4], y: it.transform[5]}))
+    .filter(it => it.str.trim() !== "");
+}
+
+/** Formato es-AR: punto = separador de miles, coma = decimal */
+function normalizarNumero(str){
+  if(str == null) return null;
+  const limpio = String(str).replace(/%/g,"").trim();
+  if(!limpio) return null;
+  const num = parseFloat(limpio.replace(/\./g,"").replace(",","."));
+  return isNaN(num) ? null : num;
+}
+
+async function procesarHoja1(arrayBuffer){
+  const filas = agruparFilas(await extraerItemsPDF(arrayBuffer), 3);
+  const resultado = {};
+
+  const filaMolienda = filas.find(f => f.some(w => w.str.includes("MOLIENDA") && w.str.includes("BRUTA")));
+  if(filaMolienda){
+    const nums = filaMolienda.filter(w => esNumero(w.str));
+    if(nums.length) resultado["Molienda Bruta/Día"] = nums[nums.length-1].str.trim();
+  }
+
+  const filaBagazo = filas.find(f => f.some(w => w.str.toUpperCase().includes("BAGAZO") && w.str.toUpperCase().includes("KGS")));
+  if(filaBagazo){
+    const nums = filaBagazo.filter(w => esNumero(w.str));
+    if(nums.length) resultado["Bagazo Kgs"] = nums[0].str.trim();
+  }
+
+  const filaFecha = filas.find(f => f.some(w => /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(w.str.trim())));
+  if(filaFecha){
+    const m = filaFecha.find(w => /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(w.str.trim())).str.trim();
+    const [d, mo, a] = m.split("/");
+    resultado["_fecha"] = `${a}-${mo.padStart(2,"0")}-${d.padStart(2,"0")}`;
+  }
+
+  return resultado;
+}
+
+async function procesarHoja2(arrayBuffer){
+  const filas = agruparFilas(await extraerItemsPDF(arrayBuffer), 3);
+  const resultado = {};
+
+  const filaHeader = filas.find(f => f.some(w => w.str.trim() === "Hdad."));
+  if(filaHeader){
+    const xPol = (filaHeader.find(w => w.str.trim() === "Pol") || {}).x;
+    const xHdad = (filaHeader.filter(w => w.str.trim() === "Hdad.")[0] || {}).x;
+    const yHeader = filaHeader[0].y;
+
+    const filaBagazo = filas
+      .filter(f => f.some(w => w.str.trim() === "BAGAZO") && f[0].y < yHeader)
+      .sort((a,b) => b[0].y - a[0].y)[0];
+
+    if(filaBagazo){
+      if(xPol != null) resultado["Bagazo - Pol"] = numeroCercano(filaBagazo, xPol);
+      if(xHdad != null) resultado["Bagazo - Humedad"] = numeroCercano(filaBagazo, xHdad);
+    }
+  }
+  return resultado;
+}
+
+/* ---------- UI: carga de archivos ---------- */
+async function manejarSubida(inputId, cajaId, nombreId, procesarFn, destino){
+  const input = document.getElementById(inputId);
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    if(!file) return;
+    document.getElementById(nombreId).textContent = file.name;
+    document.getElementById(cajaId).classList.add("lista");
+    document.getElementById("estado-carga").innerHTML = `<span class="dot live"></span>Leyendo ${file.name}…`;
+
+    try{
+      const buffer = await file.arrayBuffer();
+      const datos = await procesarFn(buffer);
+      Object.assign(destino, datos);
+      pintarRevision();
+      document.getElementById("estado-carga").textContent = "";
+    }catch(err){
+      document.getElementById("estado-carga").textContent = "";
+      sigmaToast("No se pudo leer " + file.name + ": " + err.message);
+    }
+  });
+}
+
+manejarSubida("input-hoja1", "caja-hoja1", "nombre-hoja1", procesarHoja1, datosHoja1);
+manejarSubida("input-hoja2", "caja-hoja2", "nombre-hoja2", procesarHoja2, datosHoja2);
+
+/* ---------- Tabla de revisión ---------- */
+function calcularAzucarPerdida(){
+  const kg = normalizarNumero(document.getElementById("valor-bagazo-kgs")?.value);
+  const pol = normalizarNumero(document.getElementById("valor-bagazo-pol")?.value);
+  if(kg == null || pol == null) return "";
+  return (kg * (pol/100)).toLocaleString("es-AR", {maximumFractionDigits:2});
+}
+
+function idInputDe(clave){
+  return "valor-" + clave.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-");
+}
+
+function pintarRevision(){
+  const hayAlgo = Object.keys(datosHoja1).length || Object.keys(datosHoja2).length;
+  if(!hayAlgo) return;
+  document.getElementById("bloque-revision").style.display = "block";
+
+  if(datosHoja1._fecha && !document.getElementById("fecha-parte").value){
+    document.getElementById("fecha-parte").value = datosHoja1._fecha;
+  }
+
+  const valores = {...datosHoja1, ...datosHoja2};
+  const tbody = document.getElementById("tbody-revision");
+
+  tbody.innerHTML = METRICAS.map(m => {
+    const idInput = idInputDe(m.clave);
+    const valorExtraido = m.calculada ? "" : (valores[m.clave] || "");
+    const encontrado = m.calculada || !!valorExtraido;
+    return `
+      <tr>
+        <td><input type="checkbox" id="chk-${idInput}" ${encontrado ? "checked" : ""} style="width:auto;"></td>
+        <td>${m.clave}${!encontrado ? ' <span class="chip-unidad">(no encontrado — cargalo a mano si querés guardarlo)</span>' : ""}</td>
+        <td>
+          <input type="text" id="${idInput}" value="${m.calculada ? calcularAzucarPerdida() : valorExtraido}"
+                 ${m.calculada ? "readonly" : ""} placeholder="—">
+        </td>
+        <td class="chip-unidad">${m.unidad}</td>
+      </tr>`;
+  }).join("");
+
+  // Recalcular Azúcar Perdida en vivo si se editan Bagazo Kgs / Bagazo Pol
+  const inputKg = document.getElementById("valor-bagazo-kgs");
+  const inputPol = document.getElementById("valor-bagazo-pol");
+  const inputCalc = document.getElementById(idInputDe("Azúcar Perdida"));
+  [inputKg, inputPol].forEach(inp => inp && inp.addEventListener("input", () => {
+    if(inputCalc) inputCalc.value = calcularAzucarPerdida();
+  }));
+}
+
+document.getElementById("btn-guardar-analisis").addEventListener("click", async () => {
+  const fecha = document.getElementById("fecha-parte").value;
+  if(!fecha){ sigmaToast("Ingresá la fecha del parte."); return; }
+
+  const seleccionadas = METRICAS.filter(m => {
+    const chk = document.getElementById("chk-" + idInputDe(m.clave));
+    return chk && chk.checked;
+  });
+  if(!seleccionadas.length){ sigmaToast("No hay ningún dato tildado para guardar."); return; }
+
+  const btn = document.getElementById("btn-guardar-analisis");
+  btn.disabled = true; btn.textContent = "Guardando…";
+
+  const fuente = [document.getElementById("nombre-hoja1").textContent, document.getElementById("nombre-hoja2").textContent]
+    .filter(Boolean).join(" + ");
+
+  let guardadas = 0;
+  for(const m of seleccionadas){
+    const valorTexto = document.getElementById(idInputDe(m.clave)).value;
+    const valor = normalizarNumero(valorTexto);
+    if(valor == null) continue;
+    try{
+      await sigmaPost("crear_analisis", {
+        Fecha: fecha, Metrica: m.clave, Valor: valor, Unidad: m.unidad, Fuente_Archivo: fuente
+      });
+      guardadas++;
+    }catch(err){
+      sigmaToast(`Error guardando "${m.clave}": ` + err.message);
+    }
+  }
+
+  sigmaToast(`${guardadas} dato(s) guardado(s).`);
+  btn.disabled = false; btn.textContent = "Guardar seleccionados";
+  cargarGraficos();
+});
+
+/* ---------- Gráficos ---------- */
+function pintarSelectorMetricas(){
+  const cont = document.getElementById("metricas-check");
+  cont.innerHTML = METRICAS.map(m => `
+    <label><input type="checkbox" class="chk-grafico" value="${m.clave}"> ${m.clave} <span class="chip-unidad">(${m.unidad})</span></label>
+  `).join("");
+  cont.querySelectorAll(".chk-grafico").forEach(chk => chk.addEventListener("change", pintarGraficos));
+}
+
+function pintarGraficos(){
+  const cont = document.getElementById("graficos-cont");
+  const seleccionadas = [...document.querySelectorAll(".chk-grafico:checked")].map(c => c.value);
+
+  if(!seleccionadas.length){
+    cont.innerHTML = `<div class="empty-state">Elegí uno o más datos arriba para graficarlos.</div>`;
+    return;
+  }
+  if(!analisisGuardados.length){
+    cont.innerHTML = `<div class="empty-state">Todavía no hay datos guardados en Analisis_Sector.</div>`;
+    return;
+  }
+
+  cont.innerHTML = seleccionadas.map((clave,i) => `
+    <div class="plate panel chart-card">
+      <div class="panel-head"><h3>${clave}</h3></div>
+      <div class="chart-box-analisis"><canvas id="chart-analisis-${i}"></canvas></div>
+    </div>`).join("");
+
+  seleccionadas.forEach((clave, i) => {
+    const puntos = analisisGuardados
+      .filter(a => a.Metrica === clave)
+      .map(a => ({fecha: a.Fecha, valor: parseFloat(a.Valor)}))
+      .filter(p => p.fecha && !isNaN(p.valor))
+      .sort((a,b) => a.fecha.localeCompare(b.fecha));
+
+    new Chart(document.getElementById(`chart-analisis-${i}`), {
+      type: "line",
+      data: {
+        labels: puntos.map(p => p.fecha),
+        datasets: [{
+          label: clave,
+          data: puntos.map(p => p.valor),
+          borderColor: "#6c5dd3",
+          backgroundColor: "rgba(108,93,211,.12)",
+          tension: .25, fill: true, pointRadius: 3
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: "#8b8fa3" }, grid: { color: "#ebedf5" } },
+          y: { ticks: { color: "#8b8fa3" }, grid: { color: "#ebedf5" } }
+        }
+      }
+    });
+  });
+}
+
+async function cargarGraficos(){
+  try{
+    analisisGuardados = await sigmaFetchTab("Analisis_Sector");
+  }catch(err){
+    analisisGuardados = [];
+  }
+  pintarGraficos();
+}
+
+pintarSelectorMetricas();
+cargarGraficos();
+</script>
+</body>
+</html>
