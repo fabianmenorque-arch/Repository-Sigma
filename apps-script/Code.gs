@@ -33,7 +33,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-08-24-v9-paradas-objetivos";
+const VERSION_SCRIPT = "https://script.google.com/macros/s/AKfycbwOjgiVSF2HkjI6vsKQRx9R3BizyChauK6EnJE4vnyVC3lbS-g9HIIOEfL3UZBhe9LY/exec";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
