@@ -27,8 +27,8 @@ const SIGMA_CONFIG = {
     Analisis_Sector: "925874317",
     // NUEVAS — crear estas dos pestañas en el Sheet y reemplazar "PENDIENTE_GID"
     // por el gid real (se ve en la URL al abrir la pestaña: #gid=XXXXXX)
-    Paradas: "PENDIENTE_GID",
-    Objetivos: "PENDIENTE_GID"
+    Paradas: "1157572522",
+    Objetivos: "361240453"
   },
 
   // URL del Web App de Google Apps Script (para escrituras: altas, cambios de estado, mediciones)
