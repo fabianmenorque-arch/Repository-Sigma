@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Dashboard | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="sigma-utils.js"></script>
+<style>
+  .chart-box{position:relative;height:280px;}
+  .med-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.9rem;align-items:start;}
+  .med-card{padding:1rem 1.1rem;text-align:left;}
+  .med-card .med-equipo{
+    display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;
+    font-weight:700;font-size:.92rem;color:var(--steel-200);margin-bottom:.7rem;
+    padding-bottom:.6rem;border-bottom:1px solid var(--line);
+  }
+  .med-card .med-equipo a{color:inherit;}
+  .med-card .med-equipo a:hover{color:var(--amber-500);}
+  .med-fila{display:flex;align-items:baseline;justify-content:space-between;gap:.6rem;margin-bottom:.5rem;}
+  .med-fila:last-child{margin-bottom:0;}
+  .med-fila .med-var{font-size:.78rem;color:var(--steel-400);}
+  .med-fila .med-valor{font-family:var(--font-mono);font-size:1.05rem;color:var(--amber-500);font-weight:600;text-align:right;flex-shrink:0;}
+  .med-fila .med-valor .unidad{font-size:.75rem;color:var(--steel-400);font-weight:400;margin-left:.15rem;}
+  .med-hora{font-size:.68rem;color:var(--steel-400);margin-top:.7rem;padding-top:.5rem;border-top:1px solid var(--line);}
+
+  .kpi-sub{font-size:.72rem;color:var(--steel-400);margin-top:.4rem;}
+  .barra-track{height:10px;background:var(--steel-800);border-radius:999px;overflow:hidden;border:1px solid var(--line);}
+  .barra-fill{height:100%;background:var(--amber-500);width:0%;transition:width .3s;}
+  .mini-toggle{display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem;}
+  .mini-toggle button{
+    font-family:var(--font-body);font-weight:600;font-size:.76rem;
+    padding:.4rem .8rem;border-radius:999px;border:1px solid var(--line);
+    background:var(--steel-900);color:var(--steel-400);cursor:pointer;
+  }
+  .mini-toggle button.active{background:var(--amber-glow);border-color:var(--amber-500);color:var(--amber-500);}
+
+  /* Pestañas */
+  .tab-nav-row{display:flex;flex-wrap:wrap;gap:.8rem;align-items:center;justify-content:space-between;margin:1.3rem 0;border-bottom:1px solid var(--line);padding-bottom:.2rem;}
+  .tab-nav{display:flex;gap:.3rem;flex-wrap:wrap;}
+  .tab-btn{
+    background:none;border:none;padding:.65rem 1.1rem;font-size:.86rem;font-weight:700;
+    color:var(--steel-400);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;
+  }
+  .tab-btn.active{color:var(--amber-500);border-bottom-color:var(--amber-500);}
+  .tab-pane{display:none;}
+  .tab-pane.active{display:block;}
+
+  /* Callout "hoy" */
+  .callout-hoy{text-align:center;padding:1.5rem 1rem;margin-top:1.1rem;}
+  .callout-hoy .callout-label{font-size:.85rem;color:var(--steel-400);margin-bottom:.4rem;}
+  .callout-hoy .callout-valor{font-family:var(--font-mono);font-size:2.4rem;font-weight:700;color:var(--amber-500);line-height:1.1;}
+  .callout-hoy .callout-sub{font-size:.82rem;color:var(--steel-400);margin-top:.5rem;}
+</style>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head">
+    <h1>Panel de control</h1>
+    <div class="status-line"><span class="dot live" id="live-dot"></span><span id="last-update">Cargando datos…</span></div>
+  </div>
+
+  <div class="plate panel callout-hoy">
+    <div class="callout-label">Para llegar al objetivo del mes, hoy hay que moler</div>
+    <div class="callout-valor" id="callout-molienda-hoy">—</div>
+    <div class="callout-sub" id="callout-molienda-hoy-sub"></div>
+  </div>
+
+  <div class="tab-nav-row">
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="produccion">Producción</button>
+      <button class="tab-btn" data-tab="mecanica">Mecánica</button>
+      <button class="tab-btn" data-tab="paradas">Paradas</button>
+    </div>
+    <div class="field" style="max-width:170px;margin-bottom:.4rem;">
+      <label for="mes-analisis">Mes</label>
+      <select id="mes-analisis"></select>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       PRODUCCIÓN
+       ========================================================= -->
+  <div class="tab-pane active" id="tab-produccion">
+
+    <div class="kpi-grid">
+      <div class="plate kpi-tile accent">
+        <div class="kpi-label">Avance de molienda (zafra)</div>
+        <div class="kpi-value" id="kpi-avance-dia">—</div>
+        <div class="kpi-sub" id="kpi-avance-sub"></div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Molienda objetivo del mes</div>
+        <div class="kpi-value" id="kpi-molienda-obj">—</div>
+        <div class="kpi-sub">definido en Análisis → Laboratorio</div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Molienda acumulada del mes</div>
+        <div class="kpi-value" id="kpi-molienda-acumulada">—</div>
+        <div class="kpi-sub" id="kpi-molienda-acumulada-sub"></div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Molienda pendiente</div>
+        <div class="kpi-value" id="kpi-molienda-pendiente">—</div>
+        <div class="kpi-sub" id="kpi-molienda-pendiente-sub"></div>
+      </div>
+      <div class="plate kpi-tile accent">
+        <div class="kpi-label">Molienda diaria necesaria</div>
+        <div class="kpi-value" id="kpi-molienda-necesaria">—</div>
+        <div class="kpi-sub" id="kpi-molienda-necesaria-sub"></div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Molienda promedio diaria (real)</div>
+        <div class="kpi-value" id="kpi-molienda-real">—</div>
+        <div class="kpi-sub" id="kpi-molienda-real-sub"></div>
+      </div>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Avance de zafra</h2></div>
+      <div class="barra-track"><div class="barra-fill" id="barra-avance"></div></div>
+      <p class="kpi-sub" id="avance-detalle" style="margin-top:.6rem;"></p>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Molienda diaria del mes</h2></div>
+      <div class="chart-box"><canvas id="chart-molienda-diaria"></canvas></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Bagazo-Pol promedio (última semana)</div>
+        <div class="kpi-value" id="kpi-bagazo-pol-prom">—</div>
+        <div class="kpi-sub" id="kpi-bagazo-pol-prom-sub"></div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Bagazo-Hum promedio (última semana)</div>
+        <div class="kpi-value" id="kpi-bagazo-hum-prom">—</div>
+        <div class="kpi-sub" id="kpi-bagazo-hum-prom-sub"></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="plate panel">
+        <div class="panel-head"><h2>Bagazo-Pol semanal vs. objetivo</h2></div>
+        <div class="chart-box"><canvas id="chart-bagazo-pol"></canvas></div>
+      </div>
+      <div class="plate panel">
+        <div class="panel-head"><h2>Bagazo-Hum semanal vs. objetivo</h2></div>
+        <div class="chart-box"><canvas id="chart-bagazo-hum"></canvas></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- =========================================================
+       MECÁNICA
+       ========================================================= -->
+  <div class="tab-pane" id="tab-mecanica">
+
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="plate kpi-tile accent"><div class="kpi-label">Disponibilidad global</div><div class="kpi-value">—</div></div>
+      <div class="plate kpi-tile"><div class="kpi-label">MTTR promedio</div><div class="kpi-value">—</div></div>
+      <div class="plate kpi-tile"><div class="kpi-label">MTBF promedio</div><div class="kpi-value">—</div></div>
+      <div class="plate kpi-tile"><div class="kpi-label">Intervenciones (periodo)</div><div class="kpi-value">—</div></div>
+    </div>
+
+    <div class="mini-toggle" id="areaMecanicaToggle">
+      <button type="button" class="active" data-area="__TODAS__">Mecánica (Mecánico + Trapiche + Canchón)</button>
+      <button type="button" data-area="Mecánico">Solo Mecánico</button>
+      <button type="button" data-area="Trapiche">Solo Trapiche</button>
+      <button type="button" data-area="Canchón">Solo Canchón</button>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Eficiencia Mecánica (campaña)</div>
+        <div class="kpi-value" id="kpi-eficiencia-mecanica">—</div>
+        <div class="kpi-sub" id="kpi-eficiencia-sub"></div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Récord sin parada mecánica</div>
+        <div class="kpi-value" id="kpi-record">—</div>
+        <div class="kpi-sub" id="kpi-record-sub"></div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">MTBF mecánico</div>
+        <div class="kpi-value" id="kpi-mtbf-mec">—</div>
+        <div class="kpi-sub">tiempo medio entre paradas</div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Tiempo de parada promedio</div>
+        <div class="kpi-value" id="kpi-tiempo-promedio-mec">—</div>
+        <div class="kpi-sub" id="kpi-tiempo-promedio-mec-sub"></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="plate panel">
+        <div class="panel-head"><h2>Ordenes_de_Trabajo por tipo</h2></div>
+        <div class="chart-box"><canvas id="chart-tipo"></canvas></div>
+      </div>
+      <div class="plate panel">
+        <div class="panel-head"><h2>Pareto — equipos con más intervenciones</h2></div>
+        <div class="chart-box"><canvas id="chart-pareto"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="plate panel">
+        <div class="panel-head"><h2>Clasificación de paradas mecánicas (mes)</h2></div>
+        <div class="chart-box"><canvas id="chart-paradas-mecanica"></canvas></div>
+      </div>
+      <div class="plate panel">
+        <div class="panel-head"><h2>Ranking de paradas frecuentes (Mecánica)</h2></div>
+        <div class="table-scroll">
+          <table class="sigma-table">
+            <thead><tr><th>Descripción</th><th>Veces</th><th>Tiempo total</th></tr></thead>
+            <tbody id="tabla-ranking-mecanica"><tr><td colspan="3" class="empty-state">Cargando…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head">
+        <h2>Mediciones en tiempo real</h2>
+        <span class="status-line"><span class="dot live"></span>Auto-refresco cada <span id="refresh-secs">30</span>s</span>
+      </div>
+      <div class="med-grid" id="med-grid">
+        <div class="empty-state">Sin datos de mediciones todavía.</div>
+      </div>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head">
+        <h2>KPIs por equipo</h2>
+        <input type="text" id="filtro-equipo" placeholder="Filtrar por código o nombre…" style="max-width:280px;">
+      </div>
+      <div class="table-scroll">
+        <table class="sigma-table" id="tabla-kpis">
+          <thead>
+            <tr><th>Código</th><th>Intervenciones</th><th>Fallas</th><th>MTTR (h)</th><th>MTBF (h)</th><th>Disponibilidad</th></tr>
+          </thead>
+          <tbody><tr><td colspan="6" class="empty-state">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- =========================================================
+       PARADAS
+       ========================================================= -->
+  <div class="tab-pane" id="tab-paradas">
+
+    <div class="kpi-grid">
+      <div class="plate kpi-tile accent">
+        <div class="kpi-label">Horas perdidas (mes seleccionado)</div>
+        <div class="kpi-value" id="kpi-horas-perdidas-mes">—</div>
+        <div class="kpi-sub" id="kpi-horas-perdidas-mes-sub"></div>
+      </div>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Diagrama general de paradas por sector</h2></div>
+      <div class="chart-box"><canvas id="chart-paradas-general"></canvas></div>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Horas de parada por sector (mes)</h2></div>
+      <p class="kpi-sub" style="margin:0 0 .8rem;">"Mecánica" agrupa Mecánico + Trapiche + Canchón.</p>
+      <div class="table-scroll">
+        <table class="sigma-table" id="tabla-horas-sector">
+          <thead><tr><th>Sector</th><th>Horas</th><th>% del total</th></tr></thead>
+          <tbody><tr><td colspan="3" class="empty-state">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("dashboard");
+document.getElementById("refresh-secs").textContent = SIGMA_CONFIG.MEDICIONES_REFRESH_MS / 1000;
+
+/* ===================== Pestañas ===================== */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+let kpisPorEquipo = {};
+let equiposPorCodigo = {};
+
+function fmtHoras(h){ return h.toLocaleString("es-AR",{maximumFractionDigits:1}); }
+
+function pintarKPIsGlobales(kpisPorEquipo, Ordenes_de_Trabajo){
+  const arr = Object.values(kpisPorEquipo);
+  const n = arr.length || 1;
+  const dispProm = arr.reduce((s,k)=>s+k.disponibilidad,0)/n;
+  const mttrProm = arr.reduce((s,k)=>s+k.mttr,0)/n;
+  const mtbfProm = arr.reduce((s,k)=>s+k.mtbf,0)/n;
+
+  const tiles = document.querySelectorAll("#kpi-grid .kpi-value");
+  tiles[0].textContent = fmtHoras(dispProm) + "%";
+  tiles[1].innerHTML = fmtHoras(mttrProm) + '<span class="kpi-unit">h</span>';
+  tiles[2].innerHTML = fmtHoras(mtbfProm) + '<span class="kpi-unit">h</span>';
+  tiles[3].textContent = Ordenes_de_Trabajo.length;
+}
+
+function pintarTablaKPIs(kpisPorEquipo, filtro=""){
+  const tbody = document.querySelector("#tabla-kpis tbody");
+  const texto = filtro.toLowerCase();
+  const filas = Object.values(kpisPorEquipo)
+    .filter(k => {
+      const nombre = (equiposPorCodigo[k.codigo] && equiposPorCodigo[k.codigo].Maquina) || "";
+      return k.codigo.toLowerCase().includes(texto) || nombre.toLowerCase().includes(texto);
+    })
+    .sort((a,b) => b.intervenciones - a.intervenciones);
+
+  if(!filas.length){
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Sin resultados.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filas.map(k => {
+    const nombre = equiposPorCodigo[k.codigo] && equiposPorCodigo[k.codigo].Maquina;
+    return `
+    <tr>
+      <td class="equipo-celda">
+        <a class="nombre" href="equipos/${sigmaRutaEquipo(k.codigo)}">${nombre || k.codigo}</a>
+        ${nombre ? `<span class="codigo-chico">${k.codigo}</span>` : ""}
+      </td>
+      <td>${k.intervenciones}</td>
+      <td>${k.fallas}</td>
+      <td>${fmtHoras(k.mttr)}</td>
+      <td>${fmtHoras(k.mtbf)}</td>
+      <td>${k.disponibilidad}%</td>
+    </tr>`;
+  }).join("");
+}
+
+function pintarChartTipo(conteo){
+  new Chart(document.getElementById("chart-tipo"), {
+    type: "doughnut",
+    data: {
+      labels: ["Preventivo","Predictivo","Correctivo","Otro"],
+      datasets: [{
+        data: [conteo.preventivo, conteo.predictivo, conteo.correctivo, conteo.otro],
+        backgroundColor: ["#4b3f9e","#6c5dd3","#9b8afb","#c9cbdc"],
+        borderColor: "#ffffff", borderWidth: 2
+      }]
+    },
+    options: {
+      plugins:{ legend:{ labels:{ color:"#1e1e2d", font:{family:"Inter"} } } },
+      maintainAspectRatio:false
+    }
+  });
+}
+
+function pintarChartPareto(pareto, equiposPorCodigo){
+  const nombreDe = p => {
+    const eq = equiposPorCodigo[p.codigo];
+    return eq && eq.Maquina ? eq.Maquina : p.codigo;
+  };
+
+  new Chart(document.getElementById("chart-pareto"), {
+    data: {
+      labels: pareto.map(nombreDe),
+      datasets: [
+        {
+          type:"bar", label:"Intervenciones",
+          data: pareto.map(p => p.intervenciones),
+          backgroundColor:"#6c5dd3", yAxisID:"y"
+        },
+        {
+          type:"line", label:"% acumulado",
+          data: pareto.map(p => p.pctAcumulado),
+          borderColor:"#8b8fa3", backgroundColor:"transparent",
+          yAxisID:"y1", tension:.25
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio:false,
+      scales:{
+        x:{ ticks:{ color:"#8b8fa3", maxRotation:60, minRotation:30 }, grid:{ color:"#ebedf5" } },
+        y:{ position:"left", ticks:{ color:"#8b8fa3" }, grid:{ color:"#ebedf5" } },
+        y1:{ position:"right", min:0, max:100, ticks:{ color:"#8b8fa3" }, grid:{ display:false } }
+      },
+      plugins:{
+        legend:{ labels:{ color:"#1e1e2d" } },
+        tooltip:{
+          callbacks:{
+            title: items => {
+              const p = pareto[items[0].dataIndex];
+              return `${nombreDe(p)} (${p.codigo})`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function pintarMediciones(mediciones){
+  const grid = document.getElementById("med-grid");
+  if(!mediciones.length){
+    grid.innerHTML = `<div class="empty-state">Sin datos de mediciones todavía.</div>`;
+    return;
+  }
+
+  const porEquipo = {};
+  mediciones.forEach(m => {
+    const cod = m.Codigo_Equipo || "—";
+    const varKey = m.Variable || "—";
+    if(!porEquipo[cod]) porEquipo[cod] = {};
+    const actual = porEquipo[cod][varKey];
+    const fechaNueva = sigmaParseDate(m.Fecha_Hora);
+    const fechaActual = actual ? sigmaParseDate(actual.Fecha_Hora) : null;
+    if(!actual || (fechaNueva && (!fechaActual || fechaNueva >= fechaActual))){
+      porEquipo[cod][varKey] = m;
+    }
+  });
+
+  const equiposOrdenados = Object.entries(porEquipo).map(([cod, variables]) => {
+    const lecturas = Object.values(variables).sort((a,b) => (a.Variable||"").localeCompare(b.Variable||"", "es"));
+    const masReciente = lecturas.reduce((max, m) => {
+      const f = sigmaParseDate(m.Fecha_Hora);
+      return (f && (!max || f > max)) ? f : max;
+    }, null);
+    return {cod, variables: lecturas, masReciente};
+  }).sort((a,b) => (b.masReciente||0) - (a.masReciente||0));
+
+  grid.innerHTML = equiposOrdenados.map(({cod, variables, masReciente}) => {
+    const eq = equiposPorCodigo[cod];
+    const nombre = eq && eq.Maquina ? eq.Maquina : cod;
+    const filas = variables.map(m => `
+      <div class="med-fila">
+        <span class="med-var">${m.Variable || "—"}</span>
+        <span class="med-valor">${m.Valor ?? "—"}${m.Unidad ? `<span class="unidad">${m.Unidad}</span>` : ""}</span>
+      </div>`).join("");
+
+    return `
+    <div class="plate med-card">
+      <div class="med-equipo">
+        <a href="equipos/${sigmaRutaEquipo(cod)}">${nombre}</a>
+      </div>
+      ${filas}
+      ${masReciente ? `<div class="med-hora">Última lectura: ${sigmaFmtFechaHora(masReciente.toISOString())}</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+async function cargarDashboard(){
+  try{
+    const [Ordenes_de_Trabajo, mediciones, equiposLista] = await Promise.all([
+      sigmaFetchTab("Ordenes_de_Trabajo"),
+      sigmaFetchTab("Mediciones").catch(()=>[]),
+      sigmaFetchTab("Equipos").catch(()=>[])
+    ]);
+    equiposPorCodigo = {};
+    equiposLista.forEach(e => { equiposPorCodigo[e.Codigo_SIGMA] = e; });
+
+    kpisPorEquipo = sigmaCalcularKPIs(Ordenes_de_Trabajo);
+    pintarKPIsGlobales(kpisPorEquipo, Ordenes_de_Trabajo);
+    pintarTablaKPIs(kpisPorEquipo);
+    pintarChartTipo(sigmaConteoPorTipo(Ordenes_de_Trabajo));
+    pintarChartPareto(sigmaPareto(kpisPorEquipo, 10), equiposPorCodigo);
+    pintarMediciones(mediciones);
+
+    document.getElementById("last-update").textContent =
+      "Actualizado " + new Date().toLocaleTimeString("es-AR");
+  }catch(err){
+    document.getElementById("live-dot").classList.remove("live");
+    document.getElementById("last-update").textContent = "Error al cargar datos: " + err.message;
+    console.error(err);
+  }
+}
+
+document.getElementById("filtro-equipo").addEventListener("input", sigmaDebounce(e => {
+  pintarTablaKPIs(kpisPorEquipo, e.target.value);
+}, 200));
+
+cargarDashboard();
+setInterval(async () => {
+  try{
+    const mediciones = await sigmaFetchTab("Mediciones");
+    pintarMediciones(mediciones);
+    document.getElementById("last-update").textContent = "Actualizado " + new Date().toLocaleTimeString("es-AR");
+  }catch(e){ console.error(e); }
+}, SIGMA_CONFIG.MEDICIONES_REFRESH_MS);
+</script>
+
+<script>
+/* =========================================================
+   SIGMA ANÁLISIS — desempeño de campaña (Paradas + Laboratorio)
+   ========================================================= */
+const ZAFRA_INICIO = new Date(SIGMA_CONFIG.ZAFRA_INICIO + "T00:00:00");
+const ZAFRA_DIAS = SIGMA_CONFIG.ZAFRA_DIAS_TOTALES;
+const ZAFRA_FIN_ESTIMADA = new Date(ZAFRA_INICIO);
+ZAFRA_FIN_ESTIMADA.setDate(ZAFRA_FIN_ESTIMADA.getDate() + ZAFRA_DIAS - 1);
+
+let paradasTodas = [];
+let objetivosTodos = [];
+let analisisTodos = [];
+let areaMecanicaFiltro = "__TODAS__"; // __TODAS__ | "Mecánico" | "Trapiche" | "Canchón"
+let charts2 = {};
+
+function toDateISO(str){
+  if(!str) return null;
+  const d = new Date(str + "T00:00:00");
+  return isNaN(d) ? null : d;
+}
+
+/** Las fechas de la pestaña "Paradas" vienen del Excel en formato
+    DD/MM/YYYY (ej: "30/05/2026"), a diferencia de "Analisis_Sector" que
+    usa YYYY-MM-DD — toDateISO() no las reconoce y devuelve null, lo que
+    filtraba TODAS las paradas silenciosamente. Este parser es para ese
+    formato específico. */
+function toDateDDMMYYYY(str){
+  if(!str) return null;
+  const m = String(str).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return null;
+  const d = new Date(+m[3], +m[2]-1, +m[1]);
+  return isNaN(d) ? null : d;
+}
+
+function combinarFechaHora(fecha, horaStr){
+  if(!fecha) return null;
+  const d = new Date(fecha);
+  if(horaStr && /^\d{1,2}:\d{2}/.test(horaStr)){
+    const [h,m] = horaStr.split(":").map(Number);
+    d.setHours(h, m, 0, 0);
+  }
+  return d;
+}
+
+function fmtDiasHoras(horasTotales){
+  if(horasTotales == null || isNaN(horasTotales)) return "—";
+  const totalMin = Math.round(horasTotales*60);
+  const d = Math.floor(totalMin/1440);
+  const h = Math.floor((totalMin%1440)/60);
+  if(d>0) return `${d}d ${h}h`;
+  return `${h}h`;
+}
+
+function fmtTon(n){
+  if(n == null || isNaN(n)) return "—";
+  return n.toLocaleString("es-AR",{maximumFractionDigits:1}) + " Ton";
+}
+
+/** El Sheet guarda los números con coma decimal (formato es-AR: "3,72").
+    parseFloat nativo de JS no entiende la coma y corta el número ahí
+    (todo "3,7x" quedaría en 3) — por eso hace falta este parser. */
+function parseNumeroES(str){
+  if(str == null) return null;
+  const limpio = String(str).replace(/%/g,"").trim();
+  if(!limpio) return null;
+  const num = parseFloat(limpio.replace(/\./g,"").replace(",","."));
+  return isNaN(num) ? null : num;
+}
+
+function destroyChart2(key){ if(charts2[key]){ charts2[key].destroy(); charts2[key]=null; } }
+
+/** ¿Esta causa entra en el filtro de área mecánica actual? */
+function pasaFiltroMecanico(causa){
+  if(areaMecanicaFiltro === "__TODAS__") return sigmaAreaParada(causa) === "Mecánica";
+  return normalizarCausaLocal(causa) === normalizarCausaLocal(areaMecanicaFiltro);
+}
+function normalizarCausaLocal(s){
+  return String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
+}
+
+/* ---------- Poblar selector de mes ---------- */
+function poblarSelectorMes(){
+  const sel = document.getElementById("mes-analisis");
+  const meses = [];
+  const cursor = new Date(ZAFRA_INICIO);
+  while(cursor <= ZAFRA_FIN_ESTIMADA){
+    const key = `${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,"0")}`;
+    if(!meses.includes(key)) meses.push(key);
+    cursor.setMonth(cursor.getMonth()+1, 1);
+  }
+  sel.innerHTML = meses.map(m => `<option value="${m}">${m}</option>`).join("");
+  const actual = sigmaMesActual();
+  sel.value = meses.includes(actual) ? actual : meses[meses.length-1];
+}
+
+/* ---------- KPIs de campaña (no dependen del mes) ---------- */
+function actualizarCampania(){
+  const hoy = new Date();
+
+  const diasTranscurridos = Math.min(ZAFRA_DIAS, Math.max(0, Math.floor((hoy - ZAFRA_INICIO)/86400000) + 1));
+  const pctAvance = (diasTranscurridos/ZAFRA_DIAS)*100;
+  document.getElementById("kpi-avance-dia").textContent = `Día ${diasTranscurridos} / ${ZAFRA_DIAS}`;
+  document.getElementById("kpi-avance-sub").textContent = `${pctAvance.toFixed(0)}% de la campaña`;
+  document.getElementById("barra-avance").style.width = Math.min(100,pctAvance) + "%";
+  document.getElementById("avance-detalle").textContent =
+    `Inicio: ${ZAFRA_INICIO.toLocaleDateString("es-AR")} · Fin estimado (130 días corridos): ${ZAFRA_FIN_ESTIMADA.toLocaleDateString("es-AR")}`;
+
+  const finPeriodo = hoy < ZAFRA_FIN_ESTIMADA ? hoy : ZAFRA_FIN_ESTIMADA;
+  const horasCampania = Math.max(1, (finPeriodo - ZAFRA_INICIO)/36e5);
+
+  const paradasMec = paradasTodas.filter(r => r.fecha && r.fecha >= ZAFRA_INICIO && r.fecha <= finPeriodo && pasaFiltroMecanico(r.causa));
+  const horasParoMec = paradasMec.reduce((s,r)=>s+r.duracionMin,0)/60;
+  const eficienciaMec = Math.max(0, 100*(1 - horasParoMec/horasCampania));
+  document.getElementById("kpi-eficiencia-mecanica").textContent = eficienciaMec.toFixed(1) + "%";
+
+  // Contexto: eficiencia del mes seleccionado
+  const mesSel = document.getElementById("mes-analisis").value;
+  if(mesSel){
+    const {inicio, fin} = sigmaRangoMes(mesSel);
+    const finMesEfectivo = hoy < fin ? hoy : fin;
+    const inicioMesEfectivo = inicio < ZAFRA_INICIO ? ZAFRA_INICIO : inicio;
+    const horasMes = Math.max(1, (finMesEfectivo - inicioMesEfectivo)/36e5);
+    const paradasMecMes = paradasMec.filter(r => r.fecha >= inicio && r.fecha <= fin);
+    const horasParoMecMes = paradasMecMes.reduce((s,r)=>s+r.duracionMin,0)/60;
+    const eficienciaMesVal = horasMes>0 ? Math.max(0, 100*(1-horasParoMecMes/horasMes)) : null;
+    document.getElementById("kpi-eficiencia-sub").textContent = eficienciaMesVal!=null
+      ? `Mes seleccionado: ${eficienciaMesVal.toFixed(1)}%` : "";
+  }
+
+  const nParadasMec = paradasMec.length;
+  const mtbfHoras = nParadasMec ? (horasCampania-horasParoMec)/nParadasMec : horasCampania;
+  document.getElementById("kpi-mtbf-mec").textContent = fmtDiasHoras(mtbfHoras);
+
+  if(nParadasMec){
+    const ultima = [...paradasMec].sort((a,b) => {
+      const fa = combinarFechaHora(a.fechaArranque||a.fecha, a.horaArranque||a.horaParada);
+      const fb = combinarFechaHora(b.fechaArranque||b.fecha, b.horaArranque||b.horaParada);
+      return fb - fa;
+    })[0];
+    const finUltima = combinarFechaHora(ultima.fechaArranque||ultima.fecha, ultima.horaArranque||ultima.horaParada);
+    const horasDesde = (hoy - finUltima)/36e5;
+    document.getElementById("kpi-record").textContent = fmtDiasHoras(Math.max(0,horasDesde));
+    document.getElementById("kpi-record-sub").textContent = `Última: ${ultima.causa} — ${finUltima.toLocaleDateString("es-AR")}`;
+  } else {
+    document.getElementById("kpi-record").textContent = fmtDiasHoras(horasCampania);
+    document.getElementById("kpi-record-sub").textContent = "Sin paradas mecánicas registradas en la campaña";
+  }
+}
+
+/** Llena el recuadro grande "hoy hay que moler X" de arriba de todo. */
+function actualizarCallout(necesariaTon, promedioRealTon, esMesActual, objMoliendaTon){
+  const valorEl = document.getElementById("callout-molienda-hoy");
+  const subEl = document.getElementById("callout-molienda-hoy-sub");
+
+  if(!esMesActual){
+    valorEl.textContent = "—";
+    subEl.textContent = "Elegí el mes en curso arriba para ver la meta diaria de hoy.";
+    return;
+  }
+  if(objMoliendaTon == null){
+    valorEl.textContent = "—";
+    subEl.textContent = "Definí el objetivo mensual de molienda en Análisis → Laboratorio.";
+    return;
+  }
+  valorEl.textContent = fmtTon(necesariaTon) + "/día";
+  if(promedioRealTon != null){
+    const diff = necesariaTon - promedioRealTon;
+    subEl.textContent = diff > 0.5
+      ? `${fmtTon(diff)} por encima del promedio real actual (${fmtTon(promedioRealTon)}/día)`
+      : `En línea con el promedio real actual (${fmtTon(promedioRealTon)}/día)`;
+  } else {
+    subEl.textContent = "Todavía no hay partes diarios cargados este mes para comparar.";
+  }
+}
+
+/* ---------- Panel mensual: molienda, bagazo, paradas ---------- */
+function actualizarMes(){
+  const mes = document.getElementById("mes-analisis").value;
+  if(!mes) return;
+  const {inicio, fin} = sigmaRangoMes(mes);
+  const hoy = new Date();
+  const esMesActual = mes === sigmaMesActual();
+
+  /* --- Molienda --- */
+  const objMolienda = objetivosTodos.find(o => o.Mes===mes && o.Metrica==="Objetivo Mensual de Molienda");
+  const objMoliendaTon = objMolienda ? parseNumeroES(objMolienda.Valor) : null;
+  document.getElementById("kpi-molienda-obj").textContent = objMoliendaTon!=null ? fmtTon(objMoliendaTon) : "— (definir)";
+
+  const registrosMolienda = analisisTodos.filter(a => a.Metrica==="Molienda Bruta/Día" && toDateISO(a.Fecha) && toDateISO(a.Fecha)>=inicio && toDateISO(a.Fecha)<=fin)
+    .map(a => parseNumeroES(a.Valor)).filter(v=>v!=null && !isNaN(v));
+  const moliendaAcumTon = registrosMolienda.reduce((s,v)=>s+v,0)/1000;
+  const moliendaPromDiaTon = registrosMolienda.length ? (moliendaAcumTon/registrosMolienda.length) : null;
+  document.getElementById("kpi-molienda-real").textContent = moliendaPromDiaTon!=null ? fmtTon(moliendaPromDiaTon) : "—";
+  document.getElementById("kpi-molienda-real-sub").textContent = registrosMolienda.length ? `${registrosMolienda.length} día(s) con datos cargados` : "Sin partes diarios cargados este mes";
+
+  // Acumulado del mes, según los partes diarios cargados en Laboratorio.
+  document.getElementById("kpi-molienda-acumulada").textContent = registrosMolienda.length ? fmtTon(moliendaAcumTon) : "—";
+  document.getElementById("kpi-molienda-acumulada-sub").textContent = registrosMolienda.length
+    ? `Según ${registrosMolienda.length} parte(s) diario(s) cargado(s)`
+    : "Sin partes diarios cargados este mes";
+
+  // Pendiente = objetivo - acumulado. Si ya se superó el objetivo, se
+  // muestra en 0 pero con aviso explícito (en vez de un número negativo
+  // que no tiene sentido para "lo que falta moler").
+  let pendienteTon = null;
+  if(objMoliendaTon != null){
+    pendienteTon = objMoliendaTon - moliendaAcumTon;
+    document.getElementById("kpi-molienda-pendiente").textContent = fmtTon(Math.max(0, pendienteTon));
+    document.getElementById("kpi-molienda-pendiente-sub").textContent = pendienteTon < 0
+      ? `Objetivo ya superado por ${fmtTon(-pendienteTon)} — revisá el objetivo cargado`
+      : "Objetivo − acumulado del mes";
+  } else {
+    document.getElementById("kpi-molienda-pendiente").textContent = "—";
+    document.getElementById("kpi-molienda-pendiente-sub").textContent = "Definí el objetivo en Laboratorio";
+  }
+
+  // Molienda diaria necesaria: pendiente / días-equivalentes productivos que
+  // quedan en el mes, descontando las horas ya perdidas por paradas de
+  // proceso (cuanto menos tiempo disponible, más fuerte hay que moler en lo
+  // que resta para igual llegar al objetivo).
+  let necesariaTon = null;
+  if(esMesActual && objMoliendaTon!=null){
+    const horasCalendarioRestantes = Math.max(0, (fin - hoy)/36e5);
+    const paradasMesHastaHoy = paradasTodas.filter(r => r.fecha && r.fecha>=inicio && r.fecha<=hoy);
+    const horasParoMesHastaHoy = paradasMesHastaHoy.reduce((s,r)=>s+r.duracionMin,0)/60;
+    const horasProductivasRestantes = Math.max(0, horasCalendarioRestantes - horasParoMesHastaHoy);
+    const diasEquivalentesRestantes = horasProductivasRestantes/24;
+    necesariaTon = diasEquivalentesRestantes>0 ? Math.max(0, pendienteTon)/diasEquivalentesRestantes : 0;
+    document.getElementById("kpi-molienda-necesaria").textContent = fmtTon(necesariaTon);
+    document.getElementById("kpi-molienda-necesaria-sub").textContent = pendienteTon < 0
+      ? "Objetivo del mes ya alcanzado"
+      : `${diasEquivalentesRestantes.toFixed(1)} día(s) productivo(s) restantes (ya descontadas ${fmtDiasHoras(horasParoMesHastaHoy)} de parada este mes)`;
+  } else {
+    document.getElementById("kpi-molienda-necesaria").textContent = "—";
+    document.getElementById("kpi-molienda-necesaria-sub").textContent = objMoliendaTon==null
+      ? "Definí el objetivo en Laboratorio" : "Solo aplica al mes en curso";
+  }
+
+  actualizarCallout(necesariaTon, moliendaPromDiaTon, esMesActual, objMoliendaTon);
+
+  /* --- Molienda diaria del mes, con la meta diaria como referencia --- */
+  pintarMoliendaDiaria(mes, inicio, fin, necesariaTon);
+
+  /* --- Bagazo Pol / Humedad semanal vs objetivo --- */
+  actualizarBagazoKPI("chart-bagazo-pol", "kpi-bagazo-pol-prom", "Bagazo - Pol", "%", mes, inicio, fin);
+  actualizarBagazoKPI("chart-bagazo-hum", "kpi-bagazo-hum-prom", "Bagazo - Humedad", "%", mes, inicio, fin);
+
+  /* --- Paradas del mes --- */
+  const paradasMes = paradasTodas.filter(r => r.fecha && r.fecha>=inicio && r.fecha<=fin);
+  pintarDiagramaGeneral(paradasMes);
+
+  const horasPerdidasMes = paradasMes.reduce((s,r)=>s+r.duracionMin,0)/60;
+  document.getElementById("kpi-horas-perdidas-mes").textContent = fmtDiasHoras(horasPerdidasMes);
+  document.getElementById("kpi-horas-perdidas-mes-sub").textContent = `${paradasMes.length} parada(s) registrada(s) este mes (todas las áreas)`;
+
+  const paradasMecMes = paradasMes.filter(r => pasaFiltroMecanico(r.causa));
+  pintarClasificacionMecanica(paradasMecMes);
+  pintarRankingMecanica(paradasMecMes);
+
+  const horasMecMes = paradasMecMes.reduce((s,r)=>s+r.duracionMin,0)/60;
+  const promedioMin = paradasMecMes.length ? (horasMecMes*60)/paradasMecMes.length : null;
+  document.getElementById("kpi-tiempo-promedio-mec").textContent = promedioMin!=null ? fmtDiasHoras(promedioMin/60) : "—";
+  document.getElementById("kpi-tiempo-promedio-mec-sub").textContent = `${paradasMecMes.length} parada(s) mecánica(s) este mes`;
+}
+
+function inicioSemanaISO(d){
+  const dd = new Date(d);
+  const dow = (dd.getDay()+6)%7;
+  dd.setDate(dd.getDate()-dow);
+  dd.setHours(0,0,0,0);
+  return dd;
+}
+
+/** Gráfico de barras con la molienda real de cada día del mes, más una
+    línea de referencia con la meta diaria necesaria (si aplica). */
+function pintarMoliendaDiaria(mes, inicio, fin, necesariaTon){
+  const registros = analisisTodos.filter(a => a.Metrica==="Molienda Bruta/Día" && toDateISO(a.Fecha) && toDateISO(a.Fecha)>=inicio && toDateISO(a.Fecha)<=fin);
+  const porDia = {};
+  registros.forEach(a => {
+    const v = parseNumeroES(a.Valor);
+    if(v == null || isNaN(v)) return;
+    porDia[a.Fecha] = (porDia[a.Fecha]||0) + v/1000; // Kg → Ton
+  });
+  const fechas = Object.keys(porDia).sort();
+
+  const datasets = [{
+    type:"line", label:"Molienda real",
+    data: fechas.map(f => +porDia[f].toFixed(1)),
+    borderColor:"#6c5dd3", backgroundColor:"rgba(108,93,211,.12)",
+    tension:.25, fill:true, pointRadius:3
+  }];
+  if(necesariaTon != null && necesariaTon > 0){
+    datasets.push({
+      type:"line", label:"Meta diaria necesaria",
+      data: fechas.map(()=>necesariaTon),
+      borderColor:"#f64e60", borderDash:[4,3], pointRadius:0
+    });
+  }
+
+  destroyChart2("chart-molienda-diaria");
+  charts2["chart-molienda-diaria"] = new Chart(document.getElementById("chart-molienda-diaria"), {
+    data:{ labels: fechas.map(f => new Date(f+"T00:00:00").toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit"})), datasets },
+    options:{
+      maintainAspectRatio:false,
+      plugins:{ legend:{ labels:{ color:"#1e1e2d" } } },
+      scales:{
+        x:{ ticks:{ color:"#8b8fa3" }, grid:{ color:"#ebedf5" } },
+        y:{ ticks:{ color:"#8b8fa3" }, grid:{ color:"#ebedf5" } }
+      }
+    }
+  });
+}
+
+/** Dibuja el gráfico semanal de Bagazo y además llena el KPI con el
+    promedio de la semana más reciente, comparado contra el objetivo. */
+function actualizarBagazoKPI(canvasId, kpiId, metrica, unidad, mes, inicio, fin){
+  const {claves, promedios, objetivoVal} = pintarBagazoSemanal(canvasId, metrica, mes, inicio, fin);
+  const valorEl = document.getElementById(kpiId);
+  const subEl = document.getElementById(kpiId + "-sub");
+
+  if(!claves.length){
+    valorEl.textContent = "—";
+    subEl.textContent = "Sin datos cargados este mes";
+    return;
+  }
+  const ultimoProm = promedios[promedios.length-1];
+  valorEl.textContent = ultimoProm.toLocaleString("es-AR",{maximumFractionDigits:2}) + unidad;
+  const semanaLabel = new Date(claves[claves.length-1]+"T00:00:00").toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit"});
+  subEl.textContent = objetivoVal != null
+    ? `Semana del ${semanaLabel} · Objetivo: ${objetivoVal.toLocaleString("es-AR",{maximumFractionDigits:2})}${unidad}`
+    : `Semana del ${semanaLabel} · Sin objetivo definido`;
+}
+
+function pintarBagazoSemanal(canvasId, metrica, mes, inicio, fin){
+  const registros = analisisTodos.filter(a => a.Metrica===metrica && toDateISO(a.Fecha) && toDateISO(a.Fecha)>=inicio && toDateISO(a.Fecha)<=fin);
+  const semanas = {};
+  registros.forEach(a => {
+    const f = toDateISO(a.Fecha);
+    const wk = inicioSemanaISO(f).toISOString().slice(0,10);
+    const v = parseNumeroES(a.Valor);
+    if(v == null || isNaN(v)) return;
+    (semanas[wk] = semanas[wk] || []).push(v);
+  });
+  const claves = Object.keys(semanas).sort();
+  const promedios = claves.map(k => semanas[k].reduce((s,v)=>s+v,0)/semanas[k].length);
+
+  const objetivo = objetivosTodos.find(o => o.Mes===mes && o.Metrica===metrica);
+  const objetivoVal = objetivo ? parseNumeroES(objetivo.Valor) : null;
+
+  const datasets = [{
+    type:"bar", label:metrica,
+    data: promedios,
+    backgroundColor:"#6c5dd3", borderRadius:4
+  }];
+  if(objetivoVal != null){
+    datasets.push({
+      type:"line", label:"Objetivo",
+      data: claves.map(()=>objetivoVal),
+      borderColor:"#f64e60", borderDash:[4,3], pointRadius:0
+    });
+  }
+
+  destroyChart2(canvasId);
+  charts2[canvasId] = new Chart(document.getElementById(canvasId), {
+    data:{ labels: claves.map(k => new Date(k+"T00:00:00").toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit"})), datasets },
+    options:{
+      maintainAspectRatio:false,
+      plugins:{ legend:{ labels:{ color:"#1e1e2d" } } },
+      scales:{
+        x:{ ticks:{ color:"#8b8fa3" }, grid:{ color:"#ebedf5" } },
+        y:{ ticks:{ color:"#8b8fa3" }, grid:{ color:"#ebedf5" } }
+      }
+    }
+  });
+
+  return {claves, promedios, objetivoVal};
+}
+
+function pintarDiagramaGeneral(paradasMes){
+  const porArea = {};
+  paradasMes.forEach(r => {
+    const area = sigmaAreaParada(r.causa);
+    porArea[area] = (porArea[area]||0) + r.duracionMin;
+  });
+  const etiquetas = Object.keys(porArea).sort((a,b) => porArea[b]-porArea[a]);
+  const paleta = ['#6c5dd3','#00b8d9','#ff8a3d','#1dbf73','#f64e60','#8f7ef0','#3b82f6','#c9a227','#5a4bc4','#00a389'];
+
+  destroyChart2("paradasGeneral");
+  charts2.paradasGeneral = new Chart(document.getElementById("chart-paradas-general"), {
+    type:"doughnut",
+    data:{
+      labels: etiquetas,
+      datasets:[{ data: etiquetas.map(e => +(porArea[e]/60).toFixed(1)), backgroundColor: etiquetas.map((_,i)=>paleta[i%paleta.length]), borderColor:"#ffffff", borderWidth:2 }]
+    },
+    options:{ maintainAspectRatio:false, plugins:{ legend:{ position:"right", labels:{ color:"#1e1e2d", boxWidth:11, font:{size:10.5} } } } }
+  });
+
+  const totalMin = etiquetas.reduce((s,e) => s + porArea[e], 0) || 1;
+  const tbody = document.querySelector("#tabla-horas-sector tbody");
+  if(!etiquetas.length){
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-state">Sin paradas registradas este mes.</td></tr>`;
+  } else {
+    tbody.innerHTML = etiquetas.map(e => {
+      const horas = porArea[e]/60;
+      const pct = (porArea[e]/totalMin*100).toFixed(1);
+      const esMecanica = e === "Mecánica";
+      return `<tr${esMecanica ? ' style="font-weight:700;color:var(--amber-500);"' : ""}>
+        <td>${e}</td><td>${fmtDiasHoras(horas)}</td><td>${pct}%</td>
+      </tr>`;
+    }).join("");
+  }
+}
+
+function pintarClasificacionMecanica(paradasMecMes){
+  const porCausa = {};
+  paradasMecMes.forEach(r => { porCausa[r.causa] = (porCausa[r.causa]||0) + r.duracionMin; });
+  const etiquetas = Object.keys(porCausa).sort((a,b) => porCausa[b]-porCausa[a]);
+  const paleta = ['#6c5dd3','#00b8d9','#ff8a3d'];
+
+  destroyChart2("paradasMecanica");
+  charts2.paradasMecanica = new Chart(document.getElementById("chart-paradas-mecanica"), {
+    type:"doughnut",
+    data:{
+      labels: etiquetas,
+      datasets:[{ data: etiquetas.map(e => +(porCausa[e]/60).toFixed(1)), backgroundColor: etiquetas.map((_,i)=>paleta[i%paleta.length]), borderColor:"#ffffff", borderWidth:2 }]
+    },
+    options:{ maintainAspectRatio:false, plugins:{ legend:{ position:"right", labels:{ color:"#1e1e2d", boxWidth:11, font:{size:10.5} } } } }
+  });
+}
+
+function pintarRankingMecanica(paradasMecMes){
+  const porDesc = {};
+  paradasMecMes.forEach(r => {
+    const key = (r.descripcion || "(sin descripción)").trim();
+    if(!porDesc[key]) porDesc[key] = {veces:0, min:0};
+    porDesc[key].veces++;
+    porDesc[key].min += r.duracionMin;
+  });
+  const filas = Object.entries(porDesc).sort((a,b) => b[1].veces-a[1].veces).slice(0,10);
+  const tbody = document.getElementById("tabla-ranking-mecanica");
+  if(!filas.length){
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-state">Sin paradas mecánicas este mes.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filas.map(([desc, d]) => `
+    <tr><td>${desc}</td><td>${d.veces}</td><td>${fmtDiasHoras(d.min/60)}</td></tr>
+  `).join("");
+}
+
+document.querySelectorAll("#areaMecanicaToggle button").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll("#areaMecanicaToggle button").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    areaMecanicaFiltro = btn.dataset.area;
+    actualizarCampania();
+    actualizarMes();
+  });
+});
+
+document.getElementById("mes-analisis").addEventListener("change", ()=>{ actualizarCampania(); actualizarMes(); });
+
+async function cargarSigmaAnalisis(){
+  poblarSelectorMes();
+  try{
+    const [paradasRaw, objetivosRaw, analisisRaw] = await Promise.all([
+      sigmaFetchTab("Paradas").catch(()=>[]),
+      sigmaFetchTab("Objetivos").catch(()=>[]),
+      sigmaFetchTab("Analisis_Sector").catch(()=>[])
+    ]);
+    paradasTodas = paradasRaw.map(r => ({
+      fecha: toDateDDMMYYYY(r.Fecha),
+      horaParada: r.Hora_Parada,
+      causa: r.Causa,
+      descripcion: r.Descripcion,
+      duracionMin: parseFloat(r.Duracion_Min) || 0,
+      fechaArranque: toDateDDMMYYYY(r.Fecha_Arranque),
+      horaArranque: r.Hora_Arranque
+    })).filter(r => r.fecha && r.causa);
+    objetivosTodos = objetivosRaw;
+    analisisTodos = analisisRaw;
+
+    actualizarCampania();
+    actualizarMes();
+  }catch(err){
+    console.error(err);
+    sigmaToast("Error al cargar el panel de Sigma Análisis: " + err.message);
+  }
+}
+
+cargarSigmaAnalisis();
+</script>
+</body>
+</html>
