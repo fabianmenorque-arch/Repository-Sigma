@@ -71,6 +71,8 @@
     .sigma-nav,.no-print,.filter-bar,.upload-btn,#form-buscar-orden,#form-tarea-gestion,
     #informe-vacio{display:none!important;}
     .container{max-width:none;padding:0;}
+    .sigma-nav,.no-print,.filter-bar,.upload-btn,#form-buscar-orden,#form-tarea-gestion,
+    #informe-vacio,#form-editar-orden{display:none!important;}
 
     .plate{
       background:#fff;border:1px solid #999;box-shadow:none;color:#111;
@@ -150,6 +152,13 @@
     <h1>Informe de mantenimiento</h1>
     <button class="no-print" id="btn-imprimir">Imprimir / Guardar como PDF</button>
   </div>
+  <div class="panel-head">
+  <h1>Informe de mantenimiento</h1>
+  <div class="no-print" style="display:flex;gap:.5rem;">
+    <button class="secondary" id="btn-editar-orden">✏️ Editar orden</button>
+    <button id="btn-imprimir">Imprimir / Guardar como PDF</button>
+  </div>
+</div>
 
   <!-- Buscador de orden -->
   <div class="plate panel no-print" id="form-buscar-orden">
@@ -177,6 +186,51 @@
         <div><label>Prioridad</label><div id="inf-prioridad">—</div></div>
         <div><label>Responsable</label><div id="inf-responsable">—</div></div>
       </div>
+            <div style="margin-top:1rem;">
+        <label>Descripción del trabajo</label>
+        <div id="inf-descripcion">—</div>
+      </div>
+
+      <!-- Edición de la orden -->
+      <form id="form-editar-orden" class="no-print" style="display:none;margin-top:1.2rem;border-top:1px solid var(--line);padding-top:1rem;">
+        <div class="field buscador-wrap">
+          <label for="edit-buscar-equipo">Equipo</label>
+          <input type="text" id="edit-buscar-equipo" placeholder="Buscar por código, sector o máquina…" autocomplete="off" required>
+          <div id="edit-sugerencias"></div>
+          <input type="hidden" id="edit-codigo-equipo">
+        </div>
+        <div class="field">
+          <label for="edit-descripcion">Descripción</label>
+          <textarea id="edit-descripcion" rows="3" required></textarea>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="edit-tipo">Tipo</label>
+            <select id="edit-tipo">
+              <option value="Preventivo">Preventivo</option>
+              <option value="Predictivo">Predictivo</option>
+              <option value="Correctivo">Correctivo</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="edit-prioridad">Prioridad</label>
+            <select id="edit-prioridad">
+              <option value="Alta">Alta</option>
+              <option value="Media">Media</option>
+              <option value="Baja">Baja</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="edit-responsable">Responsable</label>
+            <input type="text" id="edit-responsable" placeholder="Nombre">
+          </div>
+        </div>
+        <div style="display:flex;gap:.6rem;margin-top:.6rem;">
+          <button type="submit" id="btn-guardar-edicion">Guardar cambios</button>
+          <button type="button" class="secondary" id="btn-cancelar-edicion">Cancelar</button>
+        </div>
+      </form>
+    </div>
       <div style="margin-top:1rem;">
         <label>Descripción del trabajo</label>
         <div id="inf-descripcion">—</div>
@@ -661,7 +715,96 @@ function actualizarVisibilidadFormularios(){
   document.getElementById("form-avance").style.display = cerrada ? "none" : "";
   document.getElementById("wrap-finalizar").style.display = cerrada ? "none" : "";
 }
+/* ---------- Edición de la orden ---------- */
+const inputEditBuscar = document.getElementById("edit-buscar-equipo");
+const cajaEditSugerencias = document.getElementById("edit-sugerencias");
+const editCodigoEquipoHidden = document.getElementById("edit-codigo-equipo");
 
+// reusa el estilo visual de #sugerencias-orden
+cajaEditSugerencias.style.cssText = "position:absolute;z-index:20;background:var(--steel-900);border:1px solid var(--line);width:100%;max-height:220px;overflow:auto;border-radius:var(--radius);display:none;";
+
+inputEditBuscar.addEventListener("input", sigmaDebounce(() => {
+  const q = inputEditBuscar.value.trim().toLowerCase();
+  if(q.length < 2){ cajaEditSugerencias.style.display = "none"; return; }
+  const coincidencias = equipos.filter(e =>
+    (e.Codigo_SIGMA||"").toLowerCase().includes(q) ||
+    (e.Sector||"").toLowerCase().includes(q) ||
+    (e.Maquina||"").toLowerCase().includes(q)
+  ).slice(0, 15);
+  if(!coincidencias.length){ cajaEditSugerencias.style.display = "none"; return; }
+  cajaEditSugerencias.innerHTML = coincidencias.map(e =>
+    `<div data-codigo="${e.Codigo_SIGMA}" style="padding:.5rem .7rem;cursor:pointer;font-size:.85rem;">${e.Codigo_SIGMA} — ${e.Maquina||""} (${e.Sector||""})</div>`
+  ).join("");
+  cajaEditSugerencias.style.display = "block";
+}, 180));
+
+cajaEditSugerencias.addEventListener("click", e => {
+  const div = e.target.closest("div[data-codigo]");
+  if(!div) return;
+  editCodigoEquipoHidden.value = div.dataset.codigo;
+  inputEditBuscar.value = div.textContent;
+  cajaEditSugerencias.style.display = "none";
+});
+
+document.addEventListener("click", e => {
+  if(!e.target.closest("#form-editar-orden .buscador-wrap")) cajaEditSugerencias.style.display = "none";
+});
+
+document.getElementById("btn-editar-orden").addEventListener("click", () => {
+  if(!ordenActual) return;
+  inputEditBuscar.value = `${ordenActual.Codigo_Equipo} — ${nombreEquipo(ordenActual.Codigo_Equipo) || ""}`;
+  editCodigoEquipoHidden.value = ordenActual.Codigo_Equipo;
+  document.getElementById("edit-descripcion").value = ordenActual.Descripcion || "";
+  document.getElementById("edit-tipo").value = ordenActual.Tipo || "Preventivo";
+  document.getElementById("edit-prioridad").value = ordenActual.Prioridad || "Media";
+  document.getElementById("edit-responsable").value = ordenActual.Responsable || "";
+  document.getElementById("form-editar-orden").style.display = "block";
+});
+
+document.getElementById("btn-cancelar-edicion").addEventListener("click", () => {
+  document.getElementById("form-editar-orden").style.display = "none";
+});
+
+document.getElementById("form-editar-orden").addEventListener("submit", async e => {
+  e.preventDefault();
+  if(!ordenActual) return;
+  if(!editCodigoEquipoHidden.value){
+    sigmaToast("Elegí un equipo de la lista de sugerencias.");
+    return;
+  }
+  const btn = document.getElementById("btn-guardar-edicion");
+  btn.disabled = true; btn.textContent = "Guardando…";
+
+  const patch = {
+    Nro_Orden: ordenActual.Nro_Orden,
+    Codigo_Equipo: editCodigoEquipoHidden.value,
+    Descripcion: document.getElementById("edit-descripcion").value,
+    Tipo: document.getElementById("edit-tipo").value,
+    Prioridad: document.getElementById("edit-prioridad").value,
+    Responsable: document.getElementById("edit-responsable").value
+  };
+
+  try{
+    await sigmaPost("actualizar_orden", patch);
+    Object.assign(ordenActual, patch);
+    const enLista = ordenes.find(o => o.Nro_Orden === ordenActual.Nro_Orden);
+    if(enLista) Object.assign(enLista, patch);
+
+    document.getElementById("inf-equipo").innerHTML =
+      `<a href="equipos/${sigmaRutaEquipo(ordenActual.Codigo_Equipo)}">${nombreEquipo(ordenActual.Codigo_Equipo) || ordenActual.Codigo_Equipo}</a>`;
+    document.getElementById("inf-tipo").textContent = ordenActual.Tipo || "—";
+    document.getElementById("inf-prioridad").innerHTML = sigmaBadge("prioridad", ordenActual.Prioridad);
+    document.getElementById("inf-responsable").textContent = ordenActual.Responsable || "—";
+    document.getElementById("inf-descripcion").textContent = ordenActual.Descripcion || "—";
+
+    document.getElementById("form-editar-orden").style.display = "none";
+    sigmaToast("Orden actualizada.");
+  }catch(err){
+    sigmaToast("Error al guardar: " + err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Guardar cambios";
+  }
+});
 function cargarInforme(nroOrden){
   const o = ordenes.find(x => x.Nro_Orden === nroOrden);
   if(!o) return;
