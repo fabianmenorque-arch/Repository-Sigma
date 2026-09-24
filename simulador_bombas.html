@@ -1,0 +1,1423 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Simulador de bombas | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="sigma-utils.js"></script>
+<style>
+/* Estilos propios del simulador. Todo va bajo .sim para no chocar con sigma-styles.css */
+.sim{--pump:#22d3c9;--sys:#ff6fa8;}
+.sim .layout{display:grid;grid-template-columns:320px 1fr;gap:1.5rem;align-items:start;}
+@media (max-width:1100px){.sim .layout{grid-template-columns:1fr;}}
+
+/* botones "planos": anulan el degradé global de <button> */
+.sim .help-btn,.sim .help-close-btn,.sim .pcm-row-del{
+  background:var(--steel-800);color:var(--steel-400);border:1px solid var(--line);box-shadow:none;padding:0;
+}
+.sim .help-btn:hover,.sim .help-close-btn:hover,.sim .pcm-row-del:hover:not(:disabled){
+  background:var(--steel-700);color:#fff;box-shadow:none;
+}
+.sim .help-btn{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;}
+.sim .help-close-btn{width:28px;height:28px;border-radius:50%;font-size:.8rem;flex:none;}
+.sim .pcm-row-del{width:26px;height:26px;border-radius:50%;font-size:.75rem;}
+.sim .pcm-row-del:disabled{opacity:.35;cursor:not-allowed;}
+.sim .undo-btn,.sim .reset-btn{
+  font-size:.75rem;padding:.35rem .8rem;border-radius:999px;box-shadow:none;display:inline-flex;align-items:center;gap:.3rem;
+  background:var(--steel-800);color:var(--steel-200);border:1px solid var(--line);
+}
+.sim .undo-btn:hover:not(:disabled),.sim .reset-btn:hover{background:var(--steel-700);box-shadow:none;}
+.sim .undo-btn:disabled{opacity:.4;cursor:not-allowed;}
+.sim .reset-btn{color:var(--amber-400);border-color:var(--amber-500);}
+.sim .pill{
+  flex:1;padding:.5rem 0;text-align:center;border-radius:8px;border:1px solid var(--line);
+  background:var(--steel-800);color:var(--steel-400);font-family:var(--font-mono);font-size:.82rem;font-weight:500;box-shadow:none;
+}
+.sim .pill:hover{background:var(--steel-700);box-shadow:none;}
+.sim .pill.active,.sim .pill.active:hover{background:linear-gradient(135deg,var(--amber-600),var(--amber-500));color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(139,108,242,.35);}
+.sim .pcm-trigger-btn{
+  width:100%;display:flex;align-items:center;justify-content:space-between;font-size:.8rem;
+  background:rgba(34,211,201,.10);color:var(--pump);border:1px solid rgba(34,211,201,.35);box-shadow:none;
+}
+.sim .pcm-trigger-btn:hover{background:rgba(34,211,201,.18);box-shadow:none;}
+.sim .clear-compare{
+  font-family:var(--font-mono);font-size:.7rem;font-weight:500;color:var(--steel-400);background:none;
+  border:1px dashed var(--steel-600);border-radius:14px;padding:.15rem .6rem;box-shadow:none;
+}
+.sim .clear-compare:hover{color:var(--steel-200);background:none;box-shadow:none;}
+
+/* panel de parámetros */
+.sim .controls{padding:1.1rem 1.2rem .4rem;position:sticky;top:1rem;max-height:calc(100vh - 2rem);overflow-y:auto;}
+@media (max-width:1100px){.sim .controls{position:static;max-height:none;}}
+.sim .controls-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem;gap:.5rem;}
+.sim .controls-head h2{margin:0;}
+.sim .controls-head-btns{display:flex;gap:.4rem;}
+.sim .control-group{padding:.9rem 0;border-bottom:1px solid var(--line);}
+.sim .control-group:last-of-type{border-bottom:none;}
+.sim .control-group h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--steel-400);margin:0 0 .8rem;font-weight:700;}
+.sim .field-label{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;font-size:.82rem;font-weight:500;margin-bottom:.4rem;color:var(--steel-200);}
+.sim .field-label .val{font-family:var(--font-mono);font-size:.78rem;color:var(--pump);white-space:nowrap;}
+.sim .field-label .val.system{color:var(--sys);}
+.sim .hint-trigger{text-decoration:underline dashed;text-underline-offset:3px;text-decoration-color:var(--steel-600);cursor:help;}
+.sim .hint{font-size:.72rem;color:var(--steel-400);margin-top:.4rem;}
+.sim .pill-row{display:flex;gap:.5rem;}
+
+.sim input[type="range"]{-webkit-appearance:none;appearance:none;width:100%;height:4px;padding:0;border:none;border-radius:3px;background:var(--steel-700);margin:.3rem 0;}
+.sim input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:var(--pump);border:2px solid var(--steel-950);box-shadow:0 0 0 1px var(--pump);cursor:pointer;}
+.sim input[type="range"]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--pump);border:2px solid var(--steel-950);box-shadow:0 0 0 1px var(--pump);cursor:pointer;}
+.sim input[type="range"].sys::-webkit-slider-thumb{background:var(--sys);box-shadow:0 0 0 1px var(--sys);}
+.sim input[type="range"].sys::-moz-range-thumb{background:var(--sys);box-shadow:0 0 0 1px var(--sys);}
+
+.sim .segment{border:1px solid var(--line);border-radius:10px;padding:.75rem .85rem;margin-bottom:.6rem;background:rgba(255,255,255,.02);}
+.sim .segment-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:.2rem;}
+.sim .segment-head .name{font-size:.82rem;font-weight:700;display:flex;align-items:center;gap:.5rem;}
+.sim .swatch{width:10px;height:10px;border-radius:2px;display:inline-block;}
+.sim .segment-body{margin-top:.6rem;}
+.sim .segment.disabled .segment-body{display:none;}
+.sim .segment.disabled{opacity:.55;}
+.sim select{font-family:var(--font-mono);font-size:.78rem;padding:.4rem .5rem;}
+.sim .switch{position:relative;display:block;width:36px;height:20px;flex:none;margin:0;}
+.sim .switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;padding:0;cursor:pointer;}
+.sim .switch .track{position:absolute;inset:0;background:var(--steel-700);border-radius:20px;transition:background .15s;border:1px solid var(--line);}
+.sim .switch .knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.4);transition:left .15s;}
+.sim .switch input:checked + .track{background:var(--amber-500);}
+.sim .switch input:checked + .track .knob{left:18px;}
+
+/* columna de resultados */
+.sim .visuals{display:flex;flex-direction:column;gap:1.5rem;min-width:0;}
+.sim .visuals .panel{margin-bottom:0;}
+.sim .sub{font-size:.8rem;color:var(--steel-400);margin:0 0 .9rem;}
+#chart{width:100%;height:380px;display:block;border-radius:8px;}
+.sim .legend{display:flex;flex-wrap:wrap;gap:.5rem 1rem;margin-top:.8rem;font-size:.78rem;color:var(--steel-400);align-items:center;}
+.sim .legend-item{display:flex;align-items:center;gap:.4rem;}
+.sim .legend-line{width:18px;height:0;border-top:3px solid;display:inline-block;}
+.sim .legend-line.dashed{border-top-style:dashed;}
+.sim .legend-dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+.sim .legend-swatch{width:14px;height:10px;border-radius:2px;display:inline-block;}
+.sim .legend-item.ghost{opacity:.6;}
+.sim .warning{display:none;background:rgba(255,88,118,.12);border:1px solid var(--danger-500);color:#ff8a9d;border-radius:8px;padding:.7rem .9rem;font-size:.83rem;margin-top:.8rem;font-weight:500;}
+.sim .warning.show{display:block;}
+
+.sim .readout-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;margin-bottom:1rem;}
+.sim .readout-box{background:var(--steel-800);border:1px solid var(--line);border-radius:10px;padding:.8rem .9rem;}
+.sim .readout-box.per-pump{background:rgba(34,211,201,.08);border-color:rgba(34,211,201,.3);}
+.sim .readout-box .label{font-size:.72rem;color:var(--steel-400);margin:0 0 .3rem;text-transform:none;letter-spacing:0;font-weight:500;}
+.sim .readout-box .value{font-family:var(--font-mono);font-size:1.3rem;font-weight:600;}
+.sim .readout-box .value small{font-size:.75rem;font-weight:500;color:var(--steel-400);}
+.sim .loss-bar{display:flex;height:24px;border-radius:6px;overflow:hidden;margin-bottom:.6rem;border:1px solid var(--line);}
+.sim .loss-bar div{height:100%;}
+.sim .loss-legend{display:flex;flex-wrap:wrap;gap:.5rem 1.1rem;font-size:.75rem;color:var(--steel-400);margin-bottom:1.1rem;}
+.sim .loss-legend .sq{width:9px;height:9px;display:inline-block;border-radius:2px;margin-right:.35rem;}
+.sim td.v-good{color:var(--ok-500);font-family:var(--font-mono);}
+.sim td.v-warn{color:var(--danger-500);font-weight:700;font-family:var(--font-mono);}
+.sim table.sigma-table td{font-family:var(--font-mono);font-size:.8rem;}
+.sim table.sigma-table th sub{text-transform:none;}
+.schem-wrap{position:relative;width:100%;aspect-ratio:900/300;}
+.schem-wrap #schematic{position:absolute;top:0;left:0;width:100%;height:100%;}
+.sim .schematic-caption{font-size:.74rem;color:var(--steel-400);margin:.5rem 0 0;}
+
+/* diálogos */
+.sim dialog{
+  border:1px solid var(--line);border-radius:16px;padding:0;color:var(--steel-200);
+  background:linear-gradient(155deg,var(--steel-900),var(--card-end));box-shadow:0 24px 60px rgba(0,0,0,.6);
+}
+.sim dialog::backdrop{background:rgba(4,2,14,.72);}
+#helpModal{width:min(640px,92vw);max-height:85vh;}
+#pumpCurveModal{width:min(560px,92vw);max-height:88vh;}
+.sim .modal-inner{padding:1.4rem 1.6rem 1.5rem;overflow-y:auto;max-height:85vh;font-size:.85rem;color:var(--steel-400);}
+.sim .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:.5rem;}
+.sim .modal-head h2{margin:0;font-size:1.05rem;color:var(--steel-200);}
+.sim .modal-inner h3{margin:1.1rem 0 .4rem;color:var(--steel-200);}
+.sim .modal-inner p{margin:0 0 .6rem;}
+.sim .modal-inner b{color:var(--steel-200);}
+.sim .formula{font-family:var(--font-mono);background:var(--steel-800);border:1px solid var(--line);border-radius:8px;padding:.6rem .9rem;display:inline-block;margin:.3rem 0;font-size:.8rem;color:var(--steel-200);}
+.sim .pcm-method{display:none;}
+.sim .pcm-method.active{display:block;}
+.sim #pcmMethodPills{margin-bottom:1rem;}
+.sim .pcm-row{display:flex;gap:.8rem;}
+.sim .pcm-row label{flex:1;display:flex;flex-direction:column;gap:.35rem;}
+.sim .three-row{gap:.6rem;}
+.sim .pcm-point{flex:1;display:flex;flex-direction:column;gap:.4rem;background:var(--steel-800);border:1px solid var(--line);border-radius:8px;padding:.6rem;}
+.sim .pcm-point span{font-size:.72rem;font-weight:600;color:var(--steel-400);}
+.sim .pcm-table{width:100%;border-collapse:collapse;margin-bottom:.6rem;}
+.sim .pcm-table th{text-align:left;font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--steel-400);font-weight:600;padding:.25rem .35rem;}
+.sim .pcm-table td{padding:.25rem .35rem;}
+.sim .pcm-preview-wrap{margin-top:1rem;}
+#pcmPreview{width:100%;height:150px;display:block;border:1px solid var(--line);border-radius:8px;}
+.sim .pcm-error{display:none;color:#ff8a9d;font-size:.8rem;margin:.5rem 0 0;}
+.sim .pcm-error.show{display:block;}
+.sim .pcm-actions{display:flex;justify-content:space-between;align-items:center;margin-top:1.1rem;}
+
+/* tooltip compartido */
+.app-tooltip{position:fixed;display:none;max-width:260px;background:#f3f0ff;color:#0b0718;font-size:.78rem;line-height:1.4;padding:.5rem .75rem;border-radius:8px;pointer-events:none;transform:translate(-50%,-100%);z-index:300;box-shadow:0 6px 16px rgba(0,0,0,.4);}
+.app-tooltip.show{display:block;}
+.app-tooltip::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:#f3f0ff;}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;}}
+</style>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container sim">
+
+  <div class="panel-head">
+    <h1>Punto de operación de grupos de bombeo</h1>
+    <button class="help-btn" id="helpBtn" type="button" aria-haspopup="dialog" aria-controls="helpModal" title="Ayuda: qué muestra este simulador y cómo se calcula" aria-label="Ayuda">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M5.9 6.1c0-1.2 1-2 2.1-2s2 .7 2 1.8c0 1.4-1.6 1.5-1.9 2.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <circle cx="8" cy="11.3" r="0.9" fill="currentColor"/>
+      </svg>
+    </button>
+  </div>
+
+  <main class="layout">
+
+    <!-- ============ CONTROLES ============ -->
+    <section class="plate controls" aria-label="Parámetros del simulador">
+      <div class="controls-head">
+        <h2>Parámetros</h2>
+        <div class="controls-head-btns">
+          <button class="undo-btn" id="undoBtn" type="button" title="Deshacer la última acción" aria-label="Deshacer la última acción" disabled>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M6.5 3.5 2.5 7.5l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2.5 7.5h6a4.5 4.5 0 1 1 0 9H7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Atrás
+          </button>
+          <button class="reset-btn" id="resetBtn" type="button">Reiniciar</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Bomba</h3>
+        <div class="field">
+          <div class="field-label"><span class="hint-trigger" data-hint="Solo afecta al resultado si hay 2 o más bombas.">Disposición de las bombas</span></div>
+          <div class="pill-row" id="arrangementPills" role="group" aria-label="Disposición de las bombas">
+            <button class="pill" data-mode="parallel" type="button">En paralelo</button>
+            <button class="pill" data-mode="series" type="button">En serie</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label"><span>Nº de bombas idénticas</span></div>
+          <div class="pill-row" id="pumpPills" role="group" aria-label="Número de bombas">
+            <button class="pill" data-n="1" type="button">1</button>
+            <button class="pill" data-n="2" type="button">2</button>
+            <button class="pill" data-n="3" type="button">3</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label"><span>Velocidad de la bomba</span><span class="val" id="speedVal">100 %</span></div>
+          <input type="range" id="speed" min="50" max="100" step="1" value="100">
+        </div>
+        <div class="field">
+          <div class="field-label"><span class="hint-trigger" data-hint="Reduce permanentemente el diámetro del rodete: la curva se contrae hacia el origen de forma parecida a bajar la velocidad, pero es un recorte mecánico fijo, no reversible.">Recorte de rodete (Ø del rodete)</span><span class="val" id="trimVal">100 %</span></div>
+          <input type="range" id="trim" min="60" max="100" step="1" value="100">
+        </div>
+        <div class="field">
+          <button class="pcm-trigger-btn" id="openPumpCurveBtn" type="button">
+            <span id="pumpCurveStatusText">Curva: modelo por defecto</span>
+            <span>›</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Sistema (mandos rosados)</h3>
+        <div class="field">
+          <div class="field-label"><span>Altura estática (Δ nivel entre depósitos)</span><span class="val system" id="staticVal">10 m</span></div>
+          <input type="range" class="sys" id="staticHead" min="0" max="40" step="1" value="10">
+        </div>
+        <div class="field">
+          <div class="field-label"><span class="hint-trigger" data-hint="Pérdida adicional no asociada a un tramo de tubería concreto (codos, válvulas, filtros…).">Pérdidas menores (válvulas / accesorios)</span><span class="val system" id="minorVal">20 %</span></div>
+          <input type="range" class="sys" id="minorPct" min="0" max="100" step="1" value="20">
+        </div>
+      </div>
+
+      <div class="control-group segments">
+        <h3>Tramos de tubería (en serie, hasta 3)</h3>
+        <div id="segmentsContainer"></div>
+      </div>
+    </section>
+
+    <!-- ============ RESULTADOS ============ -->
+    <section class="visuals">
+
+      <div class="plate panel">
+        <h2 id="chartTitle">Curva de la bomba y curva del sistema</h2>
+        <div class="chart-wrap"><canvas id="chart"></canvas></div>
+        <div class="legend" id="legend"></div>
+        <div class="warning" id="warning">La bomba no puede vencer la altura estática y las pérdidas actuales: no existe punto de operación. Reducí la altura estática o las pérdidas, o aumentá el número de bombas / la velocidad.</div>
+      </div>
+
+      <div class="plate panel">
+        <h2>Punto de operación</h2>
+        <p class="sub">Caudal y altura del sistema completo, y de dónde procede cada metro de altura. Con más de una bomba se muestra también lo que ve cada bomba individualmente.</p>
+        <div class="readout-grid" id="readoutGrid"></div>
+        <div class="loss-bar" id="lossBar"></div>
+        <div class="loss-legend" id="lossLegend"></div>
+        <div class="table-scroll">
+          <table class="sigma-table">
+            <thead>
+              <tr><th>Tramo</th><th>Ø (mm)</th><th>L (m)</th><th>C (H-W)</th><th>Velocidad</th><th>Pérdida h<sub>f</sub></th></tr>
+            </thead>
+            <tbody id="segTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="plate panel">
+        <h2>Esquema del sistema</h2>
+        <p class="sub">El grosor de cada tramo representa su diámetro; el depósito superior sube o baja con la altura estática. Las etiquetas con subrayado punteado tienen más detalle: pasá el mouse o tocalas.</p>
+        <div class="schem-wrap" id="schemWrap">
+          <svg id="schematic" viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <p class="schematic-caption">Esquema ilustrativo, no a escala.</p>
+      </div>
+
+    </section>
+  </main>
+
+  <dialog id="helpModal">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <h2>Bombas, tramos de tubería y punto de operación</h2>
+        <button class="help-close-btn" id="helpCloseBtn" type="button" aria-label="Cerrar ayuda">✕</button>
+      </div>
+      <p>Este simulador muestra cómo el número de bombas, su disposición, la velocidad, el recorte de rodete y los parámetros del sistema (hasta tres tramos de tubería) desplazan la curva de la bomba y la curva del sistema, y cómo cambia el punto de operación.</p>
+
+      <h3>Cómo se calcula</h3>
+      <p>La <b>curva del sistema</b> es la altura estática más la pérdida por fricción de cada tramo (Hazen–Williams) más las pérdidas menores:</p>
+      <div class="formula">h<sub>f</sub> = 10.67 · L · Q<sup>1.852</sup> / (C<sup>1.852</sup> · D<sup>4.87</sup>)</div>
+      <p>Los tramos están en serie: el mismo caudal atraviesa cada uno y sus pérdidas se suman. Al reducir el diámetro de un tramo su pérdida crece muy rápido, por lo que suele dominar la curva del sistema.</p>
+
+      <p>La <b>curva de una bomba</b> sale de las leyes de semejanza aplicadas a una curva base. La velocidad y el recorte de rodete escalan el caudal linealmente y la altura al cuadrado:</p>
+      <div class="formula">H(Q) = k² · H₀ − C · Q² &nbsp; con &nbsp; k = (vel./100) · (recorte/100)</div>
+
+      <p>Con <i>n</i> bombas idénticas:</p>
+      <ul style="margin:.3rem 0 .6rem 1.2rem;padding:0;">
+        <li><b>En paralelo</b>: misma altura, los caudales se suman. Sirve para aumentar el caudal.</li>
+        <li><b>En serie</b>: mismo caudal, las alturas se suman. Sirve cuando hace falta más altura.</li>
+      </ul>
+      <p>En sistemas dominados por fricción, agregar bombas en paralelo apenas mueve el punto de operación; en sistemas dominados por altura estática el efecto es mucho mayor. Con bombas en serie ocurre lo contrario.</p>
+      <p><b>Recorte de rodete</b>: es una reducción mecánica permanente del diámetro (Q ∝ D, H ∝ D², potencia ∝ D³). Suele limitarse a un 20–25 %; más allá, la aproximación deja de ser fiable y conviene usar la curva recortada del fabricante.</p>
+      <p>El <b>punto de operación</b> es la intersección numérica (por bisección) de la curva de la bomba combinada con la curva del sistema. Los valores por defecto son ilustrativos, no una selección de bomba real.</p>
+      <p style="font-size:.78rem;">Inspirado en la demostración «Combined Pump &amp; System Curves» del Hydraulic Institute Data Tool: <a href="https://datatool.pumps.org/pump-fundamentals/combined" target="_blank" rel="noopener">datatool.pumps.org/pump-fundamentals/combined</a></p>
+    </div>
+  </dialog>
+
+  <dialog id="pumpCurveModal">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <h2>Curva de la bomba</h2>
+        <button class="help-close-btn" id="pcmCloseBtn" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <p>Curva de una sola bomba, a velocidad y rodete al 100 % (el simulador aplica encima la velocidad, el recorte y la disposición en serie o paralelo). Definila como en EPANET: con un punto, tres puntos o varios puntos de una curva real de fabricante.</p>
+
+      <div class="pill-row" id="pcmMethodPills" role="group" aria-label="Método de definición de la curva">
+        <button class="pill" data-method="single" type="button">Un punto</button>
+        <button class="pill" data-method="three" type="button">Tres puntos</button>
+        <button class="pill" data-method="multi" type="button">Multipunto</button>
+      </div>
+
+      <div class="pcm-method" id="pcmSingle">
+        <div class="pcm-row">
+          <label>Caudal de diseño (m³/h)<input type="number" id="pcmSingleQ" min="0" step="0.1"></label>
+          <label>Altura de diseño (m)<input type="number" id="pcmSingleH" min="0" step="0.1"></label>
+        </div>
+        <p class="hint" style="margin-top:.7rem;">EPANET agrega dos puntos automáticamente: cierre a caudal cero (133 % de la altura de diseño) y caudal máximo a altura cero (200 % del caudal de diseño).</p>
+      </div>
+
+      <div class="pcm-method" id="pcmThree">
+        <div class="pcm-row three-row">
+          <div class="pcm-point"><span>Caudal bajo</span><input type="number" id="pcmQ0" step="0.1" placeholder="Q"><input type="number" id="pcmH0" step="0.1" placeholder="H"></div>
+          <div class="pcm-point"><span>Diseño</span><input type="number" id="pcmQ1" step="0.1" placeholder="Q"><input type="number" id="pcmH1" step="0.1" placeholder="H"></div>
+          <div class="pcm-point"><span>Caudal máx.</span><input type="number" id="pcmQ2" step="0.1" placeholder="Q"><input type="number" id="pcmH2" step="0.1" placeholder="H"></div>
+        </div>
+      </div>
+
+      <div class="pcm-method" id="pcmMulti">
+        <table class="pcm-table">
+          <thead><tr><th>Caudal (m³/h)</th><th>Altura (m)</th><th></th></tr></thead>
+          <tbody id="pcmMultiBody"></tbody>
+        </table>
+        <button class="undo-btn" id="pcmAddPoint" type="button">+ Añadir punto</button>
+      </div>
+
+      <div class="pcm-preview-wrap">
+        <canvas id="pcmPreview"></canvas>
+        <p class="pcm-error" id="pcmError"></p>
+      </div>
+
+      <div class="pcm-actions">
+        <button class="undo-btn" id="pcmResetBtn" type="button">Usar curva por defecto</button>
+        <button class="reset-btn" id="pcmApplyBtn" type="button">Aplicar curva</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="app-tooltip" id="appTooltip" role="tooltip"></div>
+
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("bombas");
+</script>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============ CONSTANTES FÍSICAS ============ */
+  const PUMP_A = 50;          // m, altura de cierre de una bomba al 100 % de velocidad
+  const PUMP_C = 0.015;       // coeficiente de Q^2 (Q en m3/h) de una bomba
+  const MINOR_K_MAX = 0.0009; // coeficiente al 100 % del mando de pérdidas menores
+
+  const MATERIALS = [
+    {label:"PVC / plástico (C=150)", C:150},
+    {label:"Acero nuevo (C=140)", C:140},
+    {label:"Cobre (C=140)", C:140},
+    {label:"Hormigón (C=130)", C:130},
+    {label:"Fundición nueva (C=130)", C:130},
+    {label:"Acero galvanizado (C=120)", C:120},
+    {label:"Fundición usada (C=100)", C:100},
+  ];
+  const DIAMETERS = [20,25,32,40,50,65,80,100,125,150,200,250,300];
+
+  const COLORS = {
+    system:'#ff6fa8',
+    pump:'#22d3c9',
+    pumpRef:'#a79fc9',
+    grid:'rgba(255,255,255,.08)',
+    axis:'#a79fc9',
+    amberBg:'rgba(255,176,32,.22)',
+    blueBg:'rgba(139,108,242,.26)',
+    op:'#f3f0ff',
+    seg:['#8b6cf2','#22d3c9','#ffc35e'],
+    minor:'#a79fc9',
+    staticC:'#6f4fe0'
+  };
+
+  function round1(x){ return Math.round(x*10)/10; }
+  const _pcQ0base = Math.sqrt(PUMP_A/PUMP_C);
+  const _pcQd = round1(_pcQ0base*0.6);
+  const _pcHd = round1(PUMP_A - PUMP_C*_pcQd*_pcQd);
+  const DEFAULT_PUMP_CURVE = {
+    mode:'quadratic', // 'quadratic' | 'single' | 'three' | 'multi'
+    fitted:null,
+    singleInput:{ Q:_pcQd, H:_pcHd },
+    threeInput:{ q0:0, h0:round1(PUMP_A), q1:_pcQd, h1:_pcHd, q2:round1(_pcQ0base), h2:0 },
+    multiInput:[0,0.25,0.5,0.75,1].map(f=>{
+      const q=round1(_pcQ0base*f);
+      return {Q:q, H:round1(PUMP_A-PUMP_C*q*q)};
+    })
+  };
+
+  const DEFAULTS = {
+    pumps:1,
+    arrangement:'parallel',
+    speedPct:100,
+    trimPct:100,
+    staticHead:10,
+    minorPct:20,
+    segments:[
+      {enabled:true,  D:100, L:50, C:150},
+      {enabled:true,  D:80,  L:30, C:140},
+      {enabled:false, D:65,  L:20, C:120},
+    ],
+    pumpCurve: JSON.parse(JSON.stringify(DEFAULT_PUMP_CURVE))
+  };
+
+  let state = JSON.parse(JSON.stringify(DEFAULTS));
+
+  /* ============ DEFINICIÓN DE LA CURVA DE BOMBA ============ */
+  // Forma de potencia de EPANET: H(Q) = h0 - a*Q^b. Con 3 puntos se resuelven h0, a, b.
+  function fitThreePointCurve(Q0,H0,Q1,H1,Q2,H2){
+    function f(b){
+      return (H0-H1)*(Math.pow(Q2,b)-Math.pow(Q1,b)) - (H1-H2)*(Math.pow(Q1,b)-Math.pow(Q0,b));
+    }
+    let lo=0.05, hi=8, flo=f(lo);
+    for(let i=0;i<80;i++){
+      const mid=(lo+hi)/2, fm=f(mid);
+      if((fm>0)===(flo>0)){ lo=mid; flo=fm; } else { hi=mid; }
+    }
+    const b=(lo+hi)/2;
+    const a=(H0-H1)/(Math.pow(Q1,b)-Math.pow(Q0,b));
+    const h0=H0 + a*Math.pow(Q0,b);
+    return {h0,a,b};
+  }
+  function fitSinglePointCurve(Qd,Hd){
+    return fitThreePointCurve(0, 1.33*Hd, Qd, Hd, 2*Qd, 0);
+  }
+  function evalMultiPoint(pts, Q){
+    if(Q <= pts[0].Q) return pts[0].H;
+    const last = pts[pts.length-1];
+    if(Q >= last.Q){
+      const p1 = pts[pts.length-2];
+      const slope = (last.H-p1.H)/(last.Q-p1.Q);
+      return last.H + slope*(Q-last.Q);
+    }
+    for(let i=0;i<pts.length-1;i++){
+      if(Q >= pts[i].Q && Q <= pts[i+1].Q){
+        const t = (Q-pts[i].Q)/(pts[i+1].Q-pts[i].Q);
+        return pts[i].H + t*(pts[i+1].H-pts[i].H);
+      }
+    }
+    return last.H;
+  }
+  function evalBaseCurve(Q, cd){
+    if(Q<0) Q=0;
+    if(cd.mode==='single' || cd.mode==='three'){
+      const {h0,a,b} = cd.fitted;
+      return h0 - a*Math.pow(Q,b);
+    }
+    if(cd.mode==='multi'){
+      return evalMultiPoint(cd.multiInput, Q);
+    }
+    return PUMP_A - PUMP_C*Q*Q;
+  }
+  function baseCurveZeroFlow(cd){
+    if(cd.mode==='quadratic') return Math.sqrt(PUMP_A/PUMP_C);
+    let lo=0, hi=1;
+    while(evalBaseCurve(hi,cd) > 0 && hi < 1e6) hi *= 2;
+    for(let i=0;i<60;i++){ const mid=(lo+hi)/2; if(evalBaseCurve(mid,cd)>0) lo=mid; else hi=mid; }
+    return (lo+hi)/2;
+  }
+
+  /* ============ MODELO HIDRÁULICO ============ */
+  function effectiveK(st){
+    return (st.speedPct/100) * (st.trimPct/100);
+  }
+  function pumpHeadSingle(Q, k, cd){
+    return k*k * evalBaseCurve(Q/k, cd);
+  }
+  function pumpHeadCombined(Q, st){
+    const k = effectiveK(st);
+    if(st.arrangement === 'series'){
+      return st.pumps * pumpHeadSingle(Q, k, st.pumpCurve);
+    }
+    return pumpHeadSingle(Q/st.pumps, k, st.pumpCurve);
+  }
+  function pumpZeroFlow(st){
+    const k = effectiveK(st);
+    const Q0 = k * baseCurveZeroFlow(st.pumpCurve);
+    return st.arrangement === 'series' ? Q0 : st.pumps * Q0;
+  }
+  function perPumpValues(Qtotal, Htotal, st){
+    if(Qtotal === null) return {Q:null, H:null};
+    if(st.arrangement === 'series'){
+      return {Q:Qtotal, H:Htotal/st.pumps};
+    }
+    return {Q:Qtotal/st.pumps, H:Htotal};
+  }
+  function frictionSegment(Q_m3h, L_m, D_mm, C){
+    if(Q_m3h <= 0) return 0;
+    const Qs = Q_m3h/3600;
+    const Dm = D_mm/1000;
+    return 10.67 * L_m * Math.pow(Qs,1.852) / (Math.pow(C,1.852) * Math.pow(Dm,4.8704));
+  }
+  function systemHead(Q, st){
+    let H = st.staticHead;
+    const segLosses = [0,0,0];
+    st.segments.forEach((seg,i)=>{
+      if(!seg.enabled) return;
+      const hf = frictionSegment(Q, seg.L, seg.D, seg.C);
+      segLosses[i] = hf;
+      H += hf;
+    });
+    const minor = (st.minorPct/100) * MINOR_K_MAX * Q * Q;
+    H += minor;
+    return {H, segLosses, minor};
+  }
+  function velocity(Q_m3h, D_mm){
+    const Qs = Q_m3h/3600;
+    const A = Math.PI/4 * Math.pow(D_mm/1000,2);
+    return Qs / A;
+  }
+  function findOperatingPoint(st){
+    const Qzero = pumpZeroFlow(st);
+    const f = Q => pumpHeadCombined(Q, st) - systemHead(Q, st).H;
+    if (f(0) <= 0) return null;
+    let lo=0, hi=Qzero;
+    for(let i=0;i<70;i++){
+      const mid=(lo+hi)/2;
+      if(f(mid) > 0) lo = mid; else hi = mid;
+    }
+    return (lo+hi)/2;
+  }
+  function niceCeil(v, step){ return Math.max(step, Math.ceil(v/step)*step); }
+
+  function computeDomain(st){
+    const Qzero = pumpZeroFlow(st);
+    const xStep = Qzero < 150 ? 10 : (Qzero < 400 ? 25 : 50);
+    const xMax = niceCeil(Qzero * 1.05, xStep);
+    const yAtZero = pumpHeadCombined(0, st);
+    const ySys = systemHead(xMax, st).H;
+    const yStep = Math.max(yAtZero, ySys) < 60 ? 5 : 10;
+    const yMax = niceCeil(Math.max(yAtZero, ySys) * 1.12, yStep);
+    return {xMax, yMax};
+  }
+
+  /* ============ CURVAS DE COMPARACIÓN ("FANTASMA") + HISTORIAL ============ */
+  let ghost = null;
+  const undoStack = [];
+  const UNDO_STACK_MAX = 20;
+  function sampleGhost(st){
+    const domain = computeDomain(st);
+    const N = 140;
+    const pumpPts = [], sysPts = [];
+    for(let i=0;i<=N;i++){
+      const q = domain.xMax*i/N;
+      const hp = pumpHeadCombined(q, st);
+      if(hp >= 0) pumpPts.push([q,hp]);
+      sysPts.push([q, systemHead(q, st).H]);
+    }
+    const opQ = findOperatingPoint(st);
+    const opH = opQ !== null ? pumpHeadCombined(opQ, st) : null;
+    return {pumpPts, sysPts, opQ, opH, qMax:domain.xMax, hMax:domain.yMax};
+  }
+  function captureGhost(showComparison){
+    undoStack.push(JSON.parse(JSON.stringify(state)));
+    if(undoStack.length > UNDO_STACK_MAX) undoStack.shift();
+    ghost = (showComparison === false) ? null : sampleGhost(state);
+  }
+
+  /* ============ FORMATO ============ */
+  function fmt(n, d){
+    if(n === null || n === undefined || isNaN(n)) return '—';
+    return n.toLocaleString('es-AR', {minimumFractionDigits:d, maximumFractionDigits:d});
+  }
+
+  /* ============ CONTROLES DE TRAMOS ============ */
+  const segContainer = document.getElementById('segmentsContainer');
+  function buildSegmentControls(){
+    segContainer.innerHTML = '';
+    state.segments.forEach((seg, i)=>{
+      const isFirst = i===0;
+      const div = document.createElement('div');
+      div.className = 'segment' + (seg.enabled ? '' : ' disabled');
+      div.dataset.idx = i;
+
+      const diamOptions = DIAMETERS.map(d=>`<option value="${d}" ${d===seg.D?'selected':''}>${d} mm</option>`).join('');
+      const matOptions = MATERIALS.map(m=>`<option value="${m.C}" ${m.C===seg.C?'selected':''}>${m.label}</option>`).join('');
+
+      div.innerHTML = `
+        <div class="segment-head">
+          <span class="name"><span class="swatch" style="background:${COLORS.seg[i]}"></span>Tramo ${i+1}</span>
+          ${isFirst ? '<span class="hint" style="margin:0;">siempre activo</span>' : `
+            <label class="switch">
+              <input type="checkbox" class="seg-toggle" ${seg.enabled?'checked':''} aria-label="Activar tramo ${i+1}">
+              <span class="track"><span class="knob"></span></span>
+            </label>`}
+        </div>
+        <div class="segment-body">
+          <div class="field">
+            <div class="field-label"><span>Diámetro</span><span class="val system seg-D-val">${seg.D} mm</span></div>
+            <select class="seg-D">${diamOptions}</select>
+          </div>
+          <div class="field">
+            <div class="field-label"><span>Longitud</span><span class="val system seg-L-val">${seg.L} m</span></div>
+            <input type="range" class="sys seg-L" min="1" max="300" step="1" value="${seg.L}">
+          </div>
+          <div class="field">
+            <div class="field-label"><span>Material (rugosidad)</span></div>
+            <select class="seg-C">${matOptions}</select>
+          </div>
+        </div>
+      `;
+      segContainer.appendChild(div);
+
+      div.querySelector('.seg-D').addEventListener('change', e=>{
+        captureGhost();
+        seg.D = parseInt(e.target.value,10);
+        div.querySelector('.seg-D-val').textContent = seg.D + ' mm';
+        update();
+      });
+      let draggingSegL = false;
+      div.querySelector('.seg-L').addEventListener('input', e=>{
+        if(!draggingSegL){ captureGhost(); draggingSegL = true; }
+        seg.L = parseInt(e.target.value,10);
+        div.querySelector('.seg-L-val').textContent = seg.L + ' m';
+        update();
+      });
+      div.querySelector('.seg-L').addEventListener('change', ()=>{ draggingSegL = false; });
+      div.querySelector('.seg-C').addEventListener('change', e=>{
+        captureGhost();
+        seg.C = parseInt(e.target.value,10);
+        update();
+      });
+      const toggle = div.querySelector('.seg-toggle');
+      if(toggle){
+        toggle.addEventListener('change', e=>{
+          captureGhost();
+          seg.enabled = e.target.checked;
+          div.classList.toggle('disabled', !seg.enabled);
+          update();
+        });
+      }
+    });
+  }
+
+  /* ============ BOMBAS / VELOCIDAD / ESTÁTICA / MENORES ============ */
+  const arrangementPills = document.querySelectorAll('#arrangementPills .pill');
+  arrangementPills.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const mode = btn.dataset.mode;
+      if(mode === state.arrangement) return;
+      captureGhost();
+      state.arrangement = mode;
+      syncArrangementPills();
+      update();
+    });
+  });
+  function syncArrangementPills(){
+    arrangementPills.forEach(b=> b.classList.toggle('active', b.dataset.mode===state.arrangement));
+  }
+
+  const pumpPills = document.querySelectorAll('#pumpPills .pill');
+  pumpPills.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const n = parseInt(btn.dataset.n,10);
+      if(n === state.pumps) return;
+      captureGhost();
+      state.pumps = n;
+      syncPumpPills();
+      update();
+    });
+  });
+  function syncPumpPills(){
+    pumpPills.forEach(b=> b.classList.toggle('active', parseInt(b.dataset.n,10)===state.pumps));
+  }
+
+  let draggingSpeed = false;
+  const speedInput = document.getElementById('speed');
+  speedInput.addEventListener('input', e=>{
+    if(!draggingSpeed){ captureGhost(); draggingSpeed = true; }
+    state.speedPct = parseInt(e.target.value,10);
+    document.getElementById('speedVal').textContent = state.speedPct + ' %';
+    update();
+  });
+  speedInput.addEventListener('change', ()=>{ draggingSpeed = false; });
+
+  let draggingTrim = false;
+  const trimInput = document.getElementById('trim');
+  trimInput.addEventListener('input', e=>{
+    if(!draggingTrim){ captureGhost(); draggingTrim = true; }
+    state.trimPct = parseInt(e.target.value,10);
+    document.getElementById('trimVal').textContent = state.trimPct + ' %';
+    update();
+  });
+  trimInput.addEventListener('change', ()=>{ draggingTrim = false; });
+
+  let draggingStatic = false;
+  const staticInput = document.getElementById('staticHead');
+  staticInput.addEventListener('input', e=>{
+    if(!draggingStatic){ captureGhost(); draggingStatic = true; }
+    state.staticHead = parseInt(e.target.value,10);
+    document.getElementById('staticVal').textContent = state.staticHead + ' m';
+    update();
+  });
+  staticInput.addEventListener('change', ()=>{ draggingStatic = false; });
+
+  let draggingMinor = false;
+  const minorInput = document.getElementById('minorPct');
+  minorInput.addEventListener('input', e=>{
+    if(!draggingMinor){ captureGhost(); draggingMinor = true; }
+    state.minorPct = parseInt(e.target.value,10);
+    document.getElementById('minorVal').textContent = state.minorPct + ' %';
+    update();
+  });
+  minorInput.addEventListener('change', ()=>{ draggingMinor = false; });
+
+  function applyStateAndSyncUI(newState){
+    state = JSON.parse(JSON.stringify(newState));
+    speedInput.value = state.speedPct;
+    trimInput.value = state.trimPct;
+    staticInput.value = state.staticHead;
+    minorInput.value = state.minorPct;
+    document.getElementById('speedVal').textContent = state.speedPct + ' %';
+    document.getElementById('trimVal').textContent = state.trimPct + ' %';
+    document.getElementById('staticVal').textContent = state.staticHead + ' m';
+    document.getElementById('minorVal').textContent = state.minorPct + ' %';
+    syncArrangementPills();
+    syncPumpPills();
+    buildSegmentControls();
+    update();
+  }
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    captureGhost(false);
+    applyStateAndSyncUI(DEFAULTS);
+  });
+
+  document.getElementById('undoBtn').addEventListener('click', ()=>{
+    if(undoStack.length === 0) return;
+    ghost = sampleGhost(state);
+    const restored = undoStack.pop();
+    applyStateAndSyncUI(restored);
+  });
+
+  /* ============ AYUDA ============ */
+  const helpModal = document.getElementById('helpModal');
+  document.getElementById('helpBtn').addEventListener('click', ()=> helpModal.showModal());
+  document.getElementById('helpCloseBtn').addEventListener('click', ()=> helpModal.close());
+  helpModal.addEventListener('click', e=>{ if(e.target === helpModal) helpModal.close(); });
+
+  /* ============ VENTANA DE CURVA DE BOMBA ============ */
+  const pcm = document.getElementById('pumpCurveModal');
+  let editingMethod = 'single';
+
+  function pumpCurveStatusLabel(cd){
+    if(cd.mode==='single') return `Curva: 1 punto (Q=${cd.singleInput.Q}, H=${cd.singleInput.H})`;
+    if(cd.mode==='three') return 'Curva: 3 puntos (personalizada)';
+    if(cd.mode==='multi') return `Curva: multipunto (${cd.multiInput.length} puntos)`;
+    return 'Curva: modelo por defecto';
+  }
+
+  function switchPcmMethod(method){
+    editingMethod = method;
+    document.querySelectorAll('#pcmMethodPills .pill').forEach(b=> b.classList.toggle('active', b.dataset.method===method));
+    document.getElementById('pcmSingle').classList.toggle('active', method==='single');
+    document.getElementById('pcmThree').classList.toggle('active', method==='three');
+    document.getElementById('pcmMulti').classList.toggle('active', method==='multi');
+    drawPcmPreview();
+  }
+  document.querySelectorAll('#pcmMethodPills .pill').forEach(btn=>{
+    btn.addEventListener('click', ()=> switchPcmMethod(btn.dataset.method));
+  });
+
+  const pcmMultiBody = document.getElementById('pcmMultiBody');
+  const PCM_MULTI_MAX = 10, PCM_MULTI_MIN = 2;
+  function buildMultiRow(q,h){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input type="number" step="0.1" class="pcm-mq" value="${q}"></td>
+                     <td><input type="number" step="0.1" class="pcm-mh" value="${h}"></td>
+                     <td><button type="button" class="pcm-row-del" aria-label="Quitar punto">✕</button></td>`;
+    tr.querySelectorAll('input').forEach(inp=> inp.addEventListener('input', drawPcmPreview));
+    tr.querySelector('.pcm-row-del').addEventListener('click', ()=>{
+      if(pcmMultiBody.children.length <= PCM_MULTI_MIN) return;
+      tr.remove();
+      syncMultiRowButtons();
+      drawPcmPreview();
+    });
+    return tr;
+  }
+  function syncMultiRowButtons(){
+    const atMin = pcmMultiBody.children.length <= PCM_MULTI_MIN;
+    pcmMultiBody.querySelectorAll('.pcm-row-del').forEach(b=> b.disabled = atMin);
+    document.getElementById('pcmAddPoint').disabled = pcmMultiBody.children.length >= PCM_MULTI_MAX;
+  }
+  document.getElementById('pcmAddPoint').addEventListener('click', ()=>{
+    if(pcmMultiBody.children.length >= PCM_MULTI_MAX) return;
+    const pts = readMultiPointsFromTable();
+    const last = pts[pts.length-1] || {Q:0,H:0};
+    pcmMultiBody.appendChild(buildMultiRow(round1(last.Q+10), round1(Math.max(0,last.H-5))));
+    syncMultiRowButtons();
+    drawPcmPreview();
+  });
+  function readMultiPointsFromTable(){
+    return [...pcmMultiBody.querySelectorAll('tr')].map(tr=>({
+      Q: parseFloat(tr.querySelector('.pcm-mq').value),
+      H: parseFloat(tr.querySelector('.pcm-mh').value)
+    }));
+  }
+
+  function populatePcmFields(){
+    const cd = state.pumpCurve;
+    document.getElementById('pcmSingleQ').value = cd.singleInput.Q;
+    document.getElementById('pcmSingleH').value = cd.singleInput.H;
+    document.getElementById('pcmQ0').value = cd.threeInput.q0;
+    document.getElementById('pcmH0').value = cd.threeInput.h0;
+    document.getElementById('pcmQ1').value = cd.threeInput.q1;
+    document.getElementById('pcmH1').value = cd.threeInput.h1;
+    document.getElementById('pcmQ2').value = cd.threeInput.q2;
+    document.getElementById('pcmH2').value = cd.threeInput.h2;
+    pcmMultiBody.innerHTML = '';
+    cd.multiInput.forEach(p=> pcmMultiBody.appendChild(buildMultiRow(p.Q, p.H)));
+    syncMultiRowButtons();
+  }
+  [ 'pcmSingleQ','pcmSingleH','pcmQ0','pcmH0','pcmQ1','pcmH1','pcmQ2','pcmH2' ].forEach(id=>{
+    document.getElementById(id).addEventListener('input', drawPcmPreview);
+  });
+
+  function validateSinglePoint(q,h){
+    if(!isFinite(q)||!isFinite(h)) return 'Ingresá valores numéricos.';
+    if(!(q>0 && h>0)) return 'El caudal y la altura de diseño deben ser mayores que 0.';
+    return null;
+  }
+  function validateThreePoints(q0,h0,q1,h1,q2,h2){
+    if([q0,h0,q1,h1,q2,h2].some(v=>!isFinite(v))) return 'Ingresá valores numéricos en los 6 campos.';
+    if(!(q0>=0 && q1>q0 && q2>q1)) return 'Los caudales deben ser crecientes: bajo < diseño < máximo.';
+    if(!(h0>h1 && h1>h2 && h2>=0)) return 'La altura debe disminuir: bajo > diseño > máximo (el máximo puede ser 0).';
+    return null;
+  }
+  function validateMultiPoints(pts){
+    if(pts.some(p=>!isFinite(p.Q)||!isFinite(p.H))) return 'Ingresá valores numéricos en todos los puntos.';
+    const sorted = [...pts].sort((a,b)=>a.Q-b.Q);
+    if(sorted.some(p=>p.Q<0||p.H<0)) return 'Los valores deben ser positivos.';
+    for(let i=1;i<sorted.length;i++){
+      if(sorted[i].Q<=sorted[i-1].Q) return 'Los caudales deben ser distintos entre sí.';
+      if(sorted[i].H>=sorted[i-1].H) return 'La altura debe disminuir al aumentar el caudal.';
+    }
+    return null;
+  }
+
+  function buildPreviewCurve(){
+    if(editingMethod==='single'){
+      const q=parseFloat(document.getElementById('pcmSingleQ').value);
+      const h=parseFloat(document.getElementById('pcmSingleH').value);
+      const err=validateSinglePoint(q,h);
+      if(err) return {error:err};
+      const fit=fitSinglePointCurve(q,h);
+      return {evalFn:Q=>fit.h0-fit.a*Math.pow(Q,fit.b), qMax:2*q*1.05, hMax:fit.h0*1.1,
+              points:[{Q:0,H:fit.h0},{Q:q,H:h},{Q:2*q,H:0}], fit, raw:{Q:q,H:h}};
+    }
+    if(editingMethod==='three'){
+      const q0=parseFloat(document.getElementById('pcmQ0').value), h0=parseFloat(document.getElementById('pcmH0').value);
+      const q1=parseFloat(document.getElementById('pcmQ1').value), h1=parseFloat(document.getElementById('pcmH1').value);
+      const q2=parseFloat(document.getElementById('pcmQ2').value), h2=parseFloat(document.getElementById('pcmH2').value);
+      const err=validateThreePoints(q0,h0,q1,h1,q2,h2);
+      if(err) return {error:err};
+      const fit=fitThreePointCurve(q0,h0,q1,h1,q2,h2);
+      return {evalFn:Q=>fit.h0-fit.a*Math.pow(Q,fit.b), qMax:q2*1.08, hMax:Math.max(h0,fit.h0)*1.1,
+              points:[{Q:q0,H:h0},{Q:q1,H:h1},{Q:q2,H:h2}], fit, raw:{q0,h0,q1,h1,q2,h2}};
+    }
+    const pts=readMultiPointsFromTable();
+    const err=validateMultiPoints(pts);
+    if(err) return {error:err};
+    const sorted=[...pts].sort((a,b)=>a.Q-b.Q);
+    return {evalFn:Q=>evalMultiPoint(sorted,Q), qMax:sorted[sorted.length-1].Q*1.15, hMax:sorted[0].H*1.1,
+            points:sorted, raw:sorted};
+  }
+
+  function drawPcmPreview(){
+    const canvas = document.getElementById('pcmPreview');
+    const ctx2 = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const H = 150, W = rect.width || 500;
+    canvas.width = Math.round(W*dpr); canvas.height = Math.round(H*dpr);
+    ctx2.setTransform(dpr,0,0,dpr,0,0);
+    ctx2.clearRect(0,0,W,H);
+
+    const built = buildPreviewCurve();
+    const errEl = document.getElementById('pcmError');
+    document.getElementById('pcmApplyBtn').disabled = !!built.error;
+    if(built.error){ errEl.textContent = built.error; errEl.classList.add('show'); return; }
+    errEl.classList.remove('show');
+    if(built.qMax<=0 || built.hMax<=0) return;
+
+    const pad={left:42,right:12,top:10,bottom:22};
+    const plotW=W-pad.left-pad.right, plotH=H-pad.top-pad.bottom;
+    const xPix=q=>pad.left+(q/built.qMax)*plotW;
+    const yPix=h=>pad.top+plotH-(Math.max(0,Math.min(h,built.hMax))/built.hMax)*plotH;
+
+    ctx2.strokeStyle=COLORS.grid; ctx2.lineWidth=1;
+    ctx2.font='9.5px IBM Plex Mono, monospace'; ctx2.fillStyle=COLORS.axis;
+    for(let i=0;i<=4;i++){
+      const y=pad.top+plotH*i/4;
+      ctx2.beginPath(); ctx2.moveTo(pad.left,y); ctx2.lineTo(pad.left+plotW,y); ctx2.stroke();
+      ctx2.textAlign='right'; ctx2.textBaseline='middle';
+      ctx2.fillText(Math.round(built.hMax*(1-i/4)), pad.left-6, y);
+    }
+    ctx2.strokeStyle='#4d3f7a'; ctx2.strokeRect(pad.left,pad.top,plotW,plotH);
+
+    ctx2.strokeStyle=COLORS.pump; ctx2.lineWidth=2.5;
+    ctx2.beginPath();
+    const N=90;
+    for(let i=0;i<=N;i++){
+      const q=built.qMax*i/N, h=built.evalFn(q);
+      const x=xPix(q), y=yPix(h);
+      if(i===0) ctx2.moveTo(x,y); else ctx2.lineTo(x,y);
+    }
+    ctx2.stroke();
+
+    built.points.forEach(p=>{
+      ctx2.beginPath(); ctx2.fillStyle=COLORS.op;
+      ctx2.arc(xPix(p.Q), yPix(p.H), 3.5, 0, Math.PI*2); ctx2.fill();
+    });
+  }
+
+  function openPumpCurveModal(){
+    switchPcmMethod(state.pumpCurve.mode==='quadratic' ? 'single' : state.pumpCurve.mode);
+    populatePcmFields();
+    pcm.showModal();
+    drawPcmPreview();
+  }
+  document.getElementById('openPumpCurveBtn').addEventListener('click', openPumpCurveModal);
+  document.getElementById('pcmCloseBtn').addEventListener('click', ()=> pcm.close());
+  pcm.addEventListener('click', e=>{ if(e.target===pcm) pcm.close(); });
+
+  document.getElementById('pcmApplyBtn').addEventListener('click', ()=>{
+    const built = buildPreviewCurve();
+    if(built.error) return;
+    captureGhost();
+    const cd = state.pumpCurve;
+    if(editingMethod==='single'){
+      cd.mode='single'; cd.fitted=built.fit; cd.singleInput={Q:built.raw.Q, H:built.raw.H};
+    } else if(editingMethod==='three'){
+      cd.mode='three'; cd.fitted=built.fit;
+      cd.threeInput={q0:built.raw.q0,h0:built.raw.h0,q1:built.raw.q1,h1:built.raw.h1,q2:built.raw.q2,h2:built.raw.h2};
+    } else {
+      cd.mode='multi'; cd.multiInput=built.raw;
+    }
+    update();
+    pcm.close();
+  });
+  document.getElementById('pcmResetBtn').addEventListener('click', ()=>{
+    captureGhost();
+    state.pumpCurve.mode='quadratic';
+    update();
+    pcm.close();
+  });
+
+  /* ============ GRÁFICO ============ */
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+
+  function resizeCanvas(){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(380 * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+
+  function drawChart(st, domain, opQ, opH, ghostData){
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width, H = 380;
+    const pad = {left:52, right:18, top:16, bottom:38};
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+    const {xMax, yMax} = domain;
+
+    const xPix = q => pad.left + (q/xMax)*plotW;
+    const yPix = h => pad.top + plotH - (h/yMax)*plotH;
+
+    ctx.clearRect(0,0,W,H);
+
+    const staticY = yPix(Math.min(st.staticHead, yMax));
+
+    // banda de altura estática
+    ctx.fillStyle = COLORS.blueBg;
+    ctx.fillRect(pad.left, staticY, plotW, pad.top+plotH-staticY);
+
+    // banda de pérdidas: entre la línea estática y la curva del sistema
+    ctx.fillStyle = COLORS.amberBg;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, staticY);
+    const bandN = 100;
+    for(let i=0;i<=bandN;i++){
+      const q = xMax*i/bandN;
+      const h = systemHead(q, st).H;
+      ctx.lineTo(xPix(q), yPix(Math.min(h,yMax)));
+    }
+    ctx.lineTo(pad.left+plotW, staticY);
+    ctx.closePath();
+    ctx.fill();
+
+    // grilla
+    ctx.strokeStyle = COLORS.grid;
+    ctx.lineWidth = 1;
+    ctx.font = '11px IBM Plex Mono, monospace';
+    ctx.fillStyle = COLORS.axis;
+    const xDivs = 6, yDivs = 6;
+    for(let i=0;i<=xDivs;i++){
+      const q = xMax*i/xDivs;
+      const x = xPix(q);
+      ctx.beginPath(); ctx.moveTo(x,pad.top); ctx.lineTo(x,pad.top+plotH); ctx.stroke();
+      ctx.textAlign='center'; ctx.textBaseline='top';
+      ctx.fillText(Math.round(q), x, pad.top+plotH+6);
+    }
+    for(let i=0;i<=yDivs;i++){
+      const h = yMax*i/yDivs;
+      const y = yPix(h);
+      ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(pad.left+plotW,y); ctx.stroke();
+      ctx.textAlign='right'; ctx.textBaseline='middle';
+      ctx.fillText(Math.round(h), pad.left-8, y);
+    }
+    ctx.fillStyle = COLORS.axis;
+    ctx.font = '600 12px Inter, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+    ctx.fillText('Caudal (m³/h)', pad.left+plotW/2, H-4);
+    ctx.save();
+    ctx.translate(14, pad.top+plotH/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign='center';
+    ctx.fillText('Altura (m)', 0, 0);
+    ctx.restore();
+
+    ctx.strokeStyle = '#4d3f7a';
+    ctx.strokeRect(pad.left, pad.top, plotW, plotH);
+
+    // curvas anteriores (tenues, discontinuas)
+    if(ghostData){
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([6,4]);
+      ctx.lineWidth = 2;
+
+      ctx.strokeStyle = COLORS.system;
+      ctx.beginPath();
+      ghostData.sysPts.forEach((p,i)=>{
+        const x = xPix(p[0]), y = yPix(Math.min(p[1],yMax));
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+
+      ctx.strokeStyle = COLORS.pump;
+      ctx.beginPath();
+      ghostData.pumpPts.forEach((p,i)=>{
+        const x = xPix(p[0]), y = yPix(Math.min(p[1],yMax));
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if(ghostData.opQ !== null){
+        const ox = xPix(ghostData.opQ), oy = yPix(Math.min(ghostData.opH,yMax));
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = COLORS.op;
+        ctx.beginPath();
+        ctx.arc(ox,oy,5,0,Math.PI*2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    const N = 140;
+
+    // referencia: una sola bomba (discontinua) si n > 1
+    if(st.pumps > 1){
+      ctx.beginPath();
+      ctx.setLineDash([5,4]);
+      ctx.strokeStyle = COLORS.pumpRef;
+      ctx.lineWidth = 2;
+      let started=false;
+      for(let i=0;i<=N;i++){
+        const q = xMax*i/N;
+        const h = pumpHeadCombined(q, {...st, pumps:1});
+        if(h<0) break;
+        const x=xPix(q), y=yPix(Math.min(h,yMax));
+        if(!started){ctx.moveTo(x,y);started=true;} else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // curva de la bomba (combinada)
+    ctx.beginPath();
+    ctx.strokeStyle = COLORS.pump;
+    ctx.lineWidth = 3;
+    {
+      let started=false;
+      for(let i=0;i<=N;i++){
+        const q = xMax*i/N;
+        const h = pumpHeadCombined(q, st);
+        if(h<0) break;
+        const x=xPix(q), y=yPix(Math.min(h,yMax));
+        if(!started){ctx.moveTo(x,y);started=true;} else ctx.lineTo(x,y);
+      }
+    }
+    ctx.stroke();
+
+    // curva del sistema
+    ctx.beginPath();
+    ctx.strokeStyle = COLORS.system;
+    ctx.lineWidth = 3;
+    for(let i=0;i<=N;i++){
+      const q = xMax*i/N;
+      const h = systemHead(q, st).H;
+      const x=xPix(q), y=yPix(Math.min(h,yMax));
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+
+    // punto de operación
+    if(opQ !== null){
+      const ox = xPix(opQ), oy = yPix(Math.min(opH,yMax));
+      ctx.setLineDash([4,4]);
+      ctx.strokeStyle = COLORS.op;
+      ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(ox,pad.top+plotH); ctx.lineTo(ox,oy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(pad.left,oy); ctx.lineTo(ox,oy); ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.beginPath();
+      ctx.fillStyle = COLORS.op;
+      ctx.arc(ox,oy,5.5,0,Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.fillStyle = '#0b0718';
+      ctx.arc(ox,oy,2.4,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  /* ============ LEYENDA ============ */
+  const legendEl = document.getElementById('legend');
+  function buildLegend(st, hasGhost){
+    const nPumps = st.pumps;
+    const arrLabel = st.arrangement === 'series' ? 'en serie' : 'en paralelo';
+    let html = '';
+    html += `<span class="legend-item"><span class="legend-line" style="border-color:${COLORS.system}"></span>Curva del sistema</span>`;
+    html += `<span class="legend-item"><span class="legend-line" style="border-color:${COLORS.pump}"></span>Curva de la bomba (${nPumps} ${arrLabel})</span>`;
+    if(nPumps>1){
+      html += `<span class="legend-item"><span class="legend-line dashed" style="border-color:${COLORS.pumpRef}"></span>Referencia: 1 bomba sola</span>`;
+    }
+    html += `<span class="legend-item"><span class="legend-swatch" style="background:${COLORS.blueBg}"></span>Altura estática (geodésica)</span>`;
+    html += `<span class="legend-item"><span class="legend-swatch" style="background:${COLORS.amberBg}"></span>Pérdidas de energía</span>`;
+    html += `<span class="legend-item"><span class="legend-dot" style="background:${COLORS.op}"></span>Punto de operación</span>`;
+    if(hasGhost){
+      html += `<span class="legend-item ghost"><span class="legend-line dashed" style="border-color:${COLORS.system}"></span>Sistema (anterior)</span>`;
+      html += `<span class="legend-item ghost"><span class="legend-line dashed" style="border-color:${COLORS.pump}"></span>Bomba (anterior)</span>`;
+      html += `<button class="clear-compare" id="clearGhostBtn" type="button">Borrar comparación ✕</button>`;
+    }
+    legendEl.innerHTML = html;
+    if(hasGhost){
+      document.getElementById('clearGhostBtn').addEventListener('click', ()=>{
+        ghost = null;
+        update();
+      });
+    }
+  }
+
+  /* ============ ESQUEMA ============ */
+  const svg = document.getElementById('schematic');
+  function pxForDiameter(D){ return Math.min(34, Math.max(7, 6 + D*0.11)); }
+
+  /* ============ TOOLTIP COMPARTIDO ============ */
+  const appTooltip = document.getElementById('appTooltip');
+  let activeHintTrigger = null;
+
+  function showAppTooltip(targetEl, text){
+    const r = targetEl.getBoundingClientRect();
+    appTooltip.textContent = text;
+    appTooltip.style.left = (r.left + r.width/2) + 'px';
+    appTooltip.style.top = (r.top - 8) + 'px';
+    appTooltip.classList.add('show');
+    activeHintTrigger = targetEl;
+  }
+  function hideAppTooltip(){
+    appTooltip.classList.remove('show');
+    activeHintTrigger = null;
+  }
+  document.addEventListener('touchstart', e=>{
+    if(activeHintTrigger && !activeHintTrigger.contains(e.target) && e.target !== activeHintTrigger) hideAppTooltip();
+  });
+  function resolveHintText(t){ return typeof t === 'function' ? t() : t; }
+  function makeHoverable(labelEl, tooltipText, ariaExtra){
+    labelEl.classList.add('hint-trigger');
+    if(ariaExtra) labelEl.setAttribute('aria-label', (labelEl.textContent||'') + ', ' + ariaExtra);
+    if(!labelEl.hasAttribute('tabindex')) labelEl.setAttribute('tabindex','0');
+    labelEl.addEventListener('mouseenter', ()=> showAppTooltip(labelEl, resolveHintText(tooltipText)));
+    labelEl.addEventListener('mouseleave', hideAppTooltip);
+    labelEl.addEventListener('focus', ()=> showAppTooltip(labelEl, resolveHintText(tooltipText)));
+    labelEl.addEventListener('blur', hideAppTooltip);
+    labelEl.addEventListener('touchstart', e=>{
+      e.stopPropagation();
+      const wasOpen = activeHintTrigger === labelEl;
+      hideAppTooltip();
+      if(!wasOpen) showAppTooltip(labelEl, resolveHintText(tooltipText));
+    });
+  }
+  document.querySelectorAll('[data-hint]').forEach(elx=>{
+    makeHoverable(elx, elx.dataset.hint);
+  });
+  makeHoverable(document.getElementById('chartTitle'), ()=>
+    `El punto de operación es donde la curva de la bomba (${pumpDescriptionText()}) corta a la curva del sistema (rosa). Al cambiar cualquier parámetro, la configuración anterior queda marcada en trazo discontinuo y tenue para que puedas compararla con la nueva.`
+  );
+
+  function drawSchematic(st){
+    const NS = 'http://www.w3.org/2000/svg';
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    const el = (tag, attrs)=>{
+      const e = document.createElementNS(NS, tag);
+      for(const k in attrs) e.setAttribute(k, attrs[k]);
+      return e;
+    };
+    const TXT = '#a79fc9', TANK_FILL = '#120c29', TANK_STROKE = '#8b6cf2';
+
+    const baseline = 250;
+    const srcX = 40, srcW = 70, srcH = 80, srcTop = baseline - srcH + 10;
+
+    svg.appendChild(el('line',{x1:20,y1:baseline+10,x2:880,y2:baseline+10,stroke:'#4d3f7a','stroke-width':2}));
+
+    // depósito inferior
+    svg.appendChild(el('rect',{x:srcX,y:srcTop,width:srcW,height:srcH,fill:TANK_FILL,stroke:TANK_STROKE,'stroke-width':2,rx:3}));
+    svg.appendChild(el('rect',{x:srcX+2,y:srcTop+srcH*0.45,width:srcW-4,height:srcH*0.55-2,fill:COLORS.blueBg}));
+    svg.appendChild(el('text',{x:srcX+srcW/2,y:srcTop-10,'text-anchor':'middle','font-size':'12','font-family':'Inter, sans-serif',fill:TXT})).textContent='Depósito inferior';
+
+    // bombas: en serie se muestran en fila; en paralelo un ícono con la cantidad en la etiqueta
+    const isSeriesRow = st.arrangement === 'series' && st.pumps > 1;
+    const iconCount = isSeriesRow ? st.pumps : 1;
+    const iconSpacing = 34;
+    const pumpX0 = srcX+srcW+45, pumpY = baseline-20;
+    for(let i=0;i<iconCount;i++){
+      const cx = pumpX0 + i*iconSpacing;
+      svg.appendChild(el('circle',{cx:cx,cy:pumpY,r:15,fill:TANK_FILL,stroke:COLORS.pump,'stroke-width':3}));
+      svg.appendChild(el('polygon',{points:`${cx-6},${pumpY-6} ${cx-6},${pumpY+6} ${cx+6},${pumpY}`,fill:COLORS.pump}));
+      if(i>0){
+        svg.appendChild(el('line',{x1:pumpX0+(i-1)*iconSpacing+15,y1:pumpY,x2:cx-15,y2:pumpY,stroke:COLORS.pump,'stroke-width':4}));
+      }
+    }
+    const pumpX = pumpX0 + (iconCount-1)*iconSpacing;
+    const labelCx = pumpX0 + ((iconCount-1)*iconSpacing)/2;
+    const pumpLabel = el('text',{x:labelCx,y:pumpY+34,'text-anchor':'middle','font-size':'12','font-family':'Inter, sans-serif',fill:TXT});
+    pumpLabel.textContent = st.pumps>1 ? `${st.pumps} bombas, ${st.arrangement==='series'?'en serie':'en paralelo'}` : 'Bomba';
+    svg.appendChild(pumpLabel);
+    makeHoverable(pumpLabel, `${st.speedPct}% velocidad · ${st.trimPct}% rodete`, `${st.speedPct} por ciento de velocidad, ${st.trimPct} por ciento de rodete`);
+
+    svg.appendChild(el('line',{x1:srcX+srcW,y1:baseline-4,x2:pumpX0-15,y2:baseline-4,stroke:TANK_STROKE,'stroke-width':6,'stroke-linecap':'round'}));
+
+    // tramos de tubería
+    const active = st.segments.map((s,i)=>({...s, idx:i})).filter(s=>s.enabled);
+    const pipeStartX = pumpX+20, pipeEndX = 650;
+    const totalLen = active.reduce((a,s)=>a+s.L,0) || 1;
+    const minSeg = active.length ? (pipeEndX-pipeStartX)/active.length*0.55 : 0;
+    let widths = active.map(s=> Math.max(minSeg, (s.L/totalLen)*(pipeEndX-pipeStartX)));
+    const scaleSum = widths.reduce((a,b)=>a+b,0);
+    widths = widths.map(w => w*(pipeEndX-pipeStartX)/scaleSum);
+
+    let cx = pipeStartX;
+    let lastColor = COLORS.seg[0], lastWidth = pxForDiameter(80);
+    active.forEach((seg,i)=>{
+      const w = widths[i];
+      const sw = pxForDiameter(seg.D);
+      svg.appendChild(el('line',{x1:cx,y1:baseline-4,x2:cx+w,y2:baseline-4,stroke:COLORS.seg[seg.idx],'stroke-width':sw,'stroke-linecap':'butt'}));
+      const diamLabel = el('text',{x:cx+w/2,y:baseline-4-sw/2-8,'text-anchor':'middle','font-size':'11','font-family':'IBM Plex Mono, monospace',fill:COLORS.seg[seg.idx]});
+      diamLabel.textContent = `Ø${seg.D}`;
+      svg.appendChild(diamLabel);
+      makeHoverable(diamLabel, `Longitud: ${seg.L} m`, `longitud ${seg.L} metros`);
+      if(i>0){
+        const prevSw = pxForDiameter(active[i-1].D);
+        svg.appendChild(el('polygon',{points:`${cx-3},${baseline-4-prevSw/2} ${cx+3},${baseline-4-sw/2} ${cx+3},${baseline-4+sw/2} ${cx-3},${baseline-4+prevSw/2}`,fill:'#4d3f7a'}));
+      }
+      cx += w;
+      lastColor = COLORS.seg[seg.idx];
+      lastWidth = sw;
+    });
+
+    // ascenso al depósito superior, alineado con el final del último tramo
+    const riserX = cx;
+    const destW = 70, destH = 56;
+    const riserLen = 24 + Math.min(st.staticHead/40, 1) * 151;
+    const destTop = (baseline-4) - riserLen - destH;
+
+    svg.appendChild(el('line',{x1:riserX,y1:baseline-4,x2:riserX,y2:destTop+destH-2,stroke:lastColor,'stroke-width':lastWidth,'stroke-linecap':'round'}));
+    svg.appendChild(el('polygon',{points:`${riserX-7},${destTop+destH-2} ${riserX+7},${destTop+destH-2} ${riserX},${destTop+destH-16}`,fill:lastColor}));
+
+    const destX = riserX - destW/2;
+    svg.appendChild(el('rect',{x:destX,y:destTop,width:destW,height:destH,fill:TANK_FILL,stroke:TANK_STROKE,'stroke-width':2,rx:3}));
+    svg.appendChild(el('rect',{x:destX+2,y:destTop+destH*0.4,width:destW-4,height:destH*0.6-2,fill:COLORS.blueBg}));
+    svg.appendChild(el('text',{x:destX+destW/2,y:destTop-10,'text-anchor':'middle','font-size':'12','font-family':'Inter, sans-serif',fill:TXT})).textContent='Depósito superior';
+
+    // cota de altura estática
+    const dimX = destX + destW + 26;
+    svg.appendChild(el('line',{x1:dimX,y1:baseline+6,x2:dimX,y2:destTop+destH*0.7,stroke:COLORS.system,'stroke-width':1.5}));
+    svg.appendChild(el('line',{x1:dimX-5,y1:baseline+6,x2:dimX+5,y2:baseline+6,stroke:COLORS.system,'stroke-width':1.5}));
+    svg.appendChild(el('line',{x1:dimX-5,y1:destTop+destH*0.7,x2:dimX+5,y2:destTop+destH*0.7,stroke:COLORS.system,'stroke-width':1.5}));
+    const midY = (baseline+6+destTop+destH*0.7)/2;
+    const dimLabel = el('text',{x:dimX+10,y:midY,'font-size':'11','font-family':'IBM Plex Mono, monospace',fill:COLORS.system,'text-anchor':'start','dominant-baseline':'middle'});
+    dimLabel.textContent = `Alt. estática = ${st.staticHead} m`;
+    svg.appendChild(dimLabel);
+  }
+
+  /* ============ RESULTADOS ============ */
+  const readoutGridEl = document.getElementById('readoutGrid');
+  const warningEl = document.getElementById('warning');
+  const lossBarEl = document.getElementById('lossBar');
+  const lossLegendEl = document.getElementById('lossLegend');
+  const segTableBody = document.getElementById('segTableBody');
+
+  function updateReadout(st, opQ, opH){
+    if(opQ === null){
+      readoutGridEl.innerHTML = '';
+      warningEl.classList.add('show');
+      lossBarEl.innerHTML = '';
+      lossLegendEl.innerHTML = '';
+      segTableBody.innerHTML = '';
+      return;
+    }
+    warningEl.classList.remove('show');
+    const {H, segLosses, minor} = systemHead(opQ, st);
+
+    const boxes = [
+      {label:'Caudal del sistema', value: fmt(opQ,1)+' <small>m³/h</small>', sub: fmt(opQ/3.6,1)+' L/s'},
+      {label:'Altura del sistema', value: fmt(H,1)+' <small>m</small>'},
+    ];
+    if(st.pumps > 1){
+      const arrLabel = st.arrangement === 'series' ? 'en serie' : 'en paralelo';
+      const per = perPumpValues(opQ, H, st);
+      boxes.push({label:`Caudal por bomba (${arrLabel})`, value: fmt(per.Q,1)+' <small>m³/h</small>', perPump:true});
+      boxes.push({label:`Altura por bomba (${arrLabel})`, value: fmt(per.H,1)+' <small>m</small>', perPump:true});
+    }
+    readoutGridEl.innerHTML = boxes.map(b=>`
+      <div class="readout-box${b.perPump?' per-pump':''}">
+        <div class="label">${b.label}</div>
+        <div class="value">${b.value}</div>
+        ${b.sub?`<div class="hint" style="margin-top:4px;">${b.sub}</div>`:''}
+      </div>`).join('');
+
+    const parts = [{label:'Altura estática', v:st.staticHead, color:COLORS.staticC}];
+    st.segments.forEach((seg,i)=>{
+      if(seg.enabled) parts.push({label:`Tramo ${i+1} (Ø${seg.D})`, v:segLosses[i], color:COLORS.seg[i]});
+    });
+    parts.push({label:'Pérdidas menores', v:minor, color:COLORS.minor});
+    const total = parts.reduce((a,p)=>a+p.v,0) || 1;
+    lossBarEl.innerHTML = parts.map(p=>`<div style="width:${(p.v/total*100).toFixed(2)}%;background:${p.color}" title="${p.label}: ${fmt(p.v,1)} m"></div>`).join('');
+    lossLegendEl.innerHTML = parts.map(p=>`<span><span class="sq" style="background:${p.color}"></span>${p.label}: ${fmt(p.v,1)} m</span>`).join('');
+
+    segTableBody.innerHTML = st.segments.map((seg,i)=>{
+      if(!seg.enabled) return '';
+      const v = velocity(opQ, seg.D);
+      const vClass = v>3.5 ? 'v-warn' : (v<0.3 ? 'v-warn' : 'v-good');
+      return `<tr>
+        <td><span class="swatch" style="background:${COLORS.seg[i]};margin-right:6px;"></span>Tramo ${i+1}</td>
+        <td>${seg.D}</td>
+        <td>${seg.L}</td>
+        <td>${seg.C}</td>
+        <td class="${vClass}">${fmt(v,2)} m/s</td>
+        <td>${fmt(segLosses[i],2)} m</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function pumpDescriptionText(){
+    return state.pumps>1
+      ? `${state.pumps} bombas combinadas, ${state.arrangement==='series'?'en serie':'en paralelo'}`
+      : '1 bomba';
+  }
+
+  /* ============ ACTUALIZACIÓN PRINCIPAL ============ */
+  function update(){
+    document.getElementById('undoBtn').disabled = undoStack.length === 0;
+    document.getElementById('pumpCurveStatusText').textContent = pumpCurveStatusLabel(state.pumpCurve);
+    const domain = computeDomain(state);
+    if(ghost){
+      domain.xMax = Math.max(domain.xMax, ghost.qMax);
+      domain.yMax = Math.max(domain.yMax, ghost.hMax);
+    }
+    const opQ = findOperatingPoint(state);
+    const opH = opQ !== null ? pumpHeadCombined(opQ, state) : null;
+    resizeCanvas();
+    drawChart(state, domain, opQ, opH, ghost);
+    buildLegend(state, !!ghost);
+    updateReadout(state, opQ, opH);
+    drawSchematic(state);
+  }
+
+  window.addEventListener('resize', ()=>{ update(); });
+
+  /* ============ INICIO ============ */
+  syncArrangementPills();
+  syncPumpPills();
+  buildSegmentControls();
+  update();
+
+})();
+</script>
+</body>
+</html>
