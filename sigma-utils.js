@@ -266,6 +266,7 @@ function sigmaRenderNav(activePage, basePath = ""){
     alta: '<svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M12 9v6M9 12h6"/></svg>',
     gestion: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.3"/><path d="M12 3v2.4M12 18.6V21M21 12h-2.4M5.4 12H3M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7M18.4 18.4l-1.7-1.7M7.3 7.3 5.6 5.6"/></svg>',
     novedades: '<svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>'
+     bombas: '<svg viewBox="0 0 24 24"><path d="M12 3c3 4 6 7.2 6 10.5a6 6 0 1 1-12 0C6 10.2 9 7 12 3z"/></svg>',
   };
 
   const links = [
@@ -278,11 +279,12 @@ function sigmaRenderNav(activePage, basePath = ""){
     {id:"analisis", href:`${basePath}analisis.html`, label:"Análisis"},
     {id:"alta", href:`${basePath}alta_nuevo_equipo.html`, label:"Alta de equipo"},
     {id:"gestion", href:`${basePath}gestion_hojas.html`, label:"Gestión"}
+     {id:"bombas", href:`${basePath}simulador_bombas.html`, label:"Simulador de bombas"},
   ];
   const linksHtml = links.map(l =>
     `<a class="nav-link${l.id===activePage?" active":""}" href="${l.href}">${iconos[l.id]}${l.label}</a>`
   ).join("");
-
+    
   return `
   <nav class="sigma-nav">
     <div class="brand">
