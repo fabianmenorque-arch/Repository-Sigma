@@ -32,14 +32,14 @@ const SIGMA_CONFIG = {
   },
 
   // URL del Web App de Google Apps Script (para escrituras: altas, cambios de estado, mediciones)
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxVMhCTV6aOiaHkE6au3cP2bzo_wt9iv15o8UwnEHra1tq8XPDEfxb1VlnZz4czHrH7/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwBOQkzSQ2PXlwL5rgjcgEUh7AIlaUy8Kc64tkvSLWGZbbb7DSiE5ERAMkJUdj0Wpir/exec",
 
   // Refresco automático del panel de mediciones en tiempo real (ms)
   MEDICIONES_REFRESH_MS: 30000,
 
   // Campaña de molienda vigente (para "Avance de molienda" en el Dashboard)
   ZAFRA_INICIO: "2026-05-30",
-  ZAFRA_DIAS_TOTALES: 130
+  ZAFRA_DIAS_TOTALES: 150
 };
 
 /* ---------------------------------------------------------------
