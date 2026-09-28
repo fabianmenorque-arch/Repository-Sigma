@@ -18,9 +18,8 @@
  *    Implementar → Administrar implementaciones → ✏️ (lápiz de la
  *    implementación existente) → Versión: "Nueva versión" → Implementar.
  *
- * NUEVO EN ESTA VERSIÓN (Paradas / Objetivos — Dashboard "Sigma Análisis")
- * Antes de publicar, creá en el Sheet dos pestañas nuevas con estos
- * encabezados EXACTOS en la fila 1 (mismo orden no importa, los nombres sí):
+ * PARADAS / OBJETIVOS (Dashboard "Sigma Análisis")
+ * Pestañas del Sheet con estos encabezados EXACTOS en la fila 1:
  *
  *   Pestaña "Paradas":
  *     Fecha | Hora_Parada | Codigo | Causa | Descripcion | Fecha_Arranque | Hora_Arranque | Duracion_Min | Clave_Unica
@@ -28,14 +27,16 @@
  *   Pestaña "Objetivos":
  *     Mes | Metrica | Valor | Unidad
  *
- * Después, en cada pestaña: click en la pestaña → "Ver gid" en la URL
- * (#gid=XXXXXX) → copiar ese número en SIGMA_CONFIG.GIDS.Paradas y
- * SIGMA_CONFIG.GIDS.Objetivos dentro de sigma-utils.js.
+ * REPUESTOS CRÍTICOS (repuestos.html) — nuevo en esta versión
+ *   - Equipos: se agrega sola la columna "Criticidad" (A/B/C/X).
+ *   - Repuestos: columnas Codigo_Equipo | Nombre | Marca | Designacion | Codigo_Repuesto | Cant.
+ *   - Precios: se crea sola al guardar el primer costo
+ *     (Clave_Repuesto | Codigo_Repuesto | Nombre | Designacion | Costo_Unitario | Plazo_Dias).
  */
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-08-27-v10-paradas-objetivos-novedades";
+const VERSION_SCRIPT = "2026-09-28-v11-repuestos-criticos";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -49,7 +50,8 @@ const SHEETS = {
   ANALISIS: "Analisis_Sector",
   AVANCES: "Avances_Orden",
   PARADAS: "Paradas",
-  OBJETIVOS: "Objetivos"
+  OBJETIVOS: "Objetivos",
+  PRECIOS: "Precios"
 };
 
 /* ============================================================
@@ -88,6 +90,14 @@ function doPost(e) {
           return ok_(crearParada_(body));
         case "guardar_objetivo":
           return ok_(guardarObjetivo_(body));
+        case "actualizar_criticidad":
+          return ok_(actualizarCriticidad_(body));
+        case "guardar_repuesto":
+          return ok_(guardarRepuesto_(body));
+        case "eliminar_repuesto":
+          return ok_(eliminarRepuesto_(body));
+        case "guardar_precio":
+          return ok_(guardarPrecio_(body));
         default:
           Logger.log("Acción desconocida: " + accion);
           return error_("Acción desconocida: " + accion);
@@ -111,6 +121,7 @@ function doGet(e) {
 
 function crearEquipo_(body) {
   const sheet = hoja_(SHEETS.EQUIPOS);
+  asegurarColumna_(sheet, "Criticidad");
   if (existeValor_(sheet, "Codigo_SIGMA", body.Codigo_SIGMA)) {
     throw new Error("El código " + body.Codigo_SIGMA + " ya existe.");
   }
@@ -320,6 +331,77 @@ function guardarObjetivo_(body) {
   return {accion: "guardar_objetivo", Mes: body.Mes, Metrica: body.Metrica, actualizado: fila !== -1};
 }
 
+/* ------------------------------------------------------------
+   REPUESTOS CRÍTICOS (repuestos.html)
+   ------------------------------------------------------------ */
+
+/** body.items = [{Codigo_SIGMA, Criticidad}, ...] — una o muchas a la vez. */
+function actualizarCriticidad_(body) {
+  const sheet = hoja_(SHEETS.EQUIPOS);
+  asegurarColumna_(sheet, "Criticidad");
+  const h = encabezados_(sheet);
+  const cCod = h.indexOf("Codigo_SIGMA"), cCrit = h.indexOf("Criticidad");
+  const n = Math.max(sheet.getLastRow() - 1, 0);
+  if (!n) return {accion: "actualizar_criticidad", actualizados: 0};
+
+  const mapa = {};
+  (body.items || []).forEach(it => mapa[String(it.Codigo_SIGMA).trim()] = it.Criticidad);
+  const codigos = sheet.getRange(2, cCod + 1, n, 1).getValues();
+  const rango = sheet.getRange(2, cCrit + 1, n, 1);
+  const vals = rango.getValues();
+  let cambios = 0;
+  for (let i = 0; i < n; i++) {
+    const cod = String(codigos[i][0]).trim();
+    if (mapa.hasOwnProperty(cod)) { vals[i][0] = mapa[cod]; cambios++; }
+  }
+  rango.setValues(vals);
+  return {accion: "actualizar_criticidad", actualizados: cambios};
+}
+
+/**
+ * Repuestos de un equipo. Se identifica una fila por Codigo_Equipo +
+ * Nombre + Designacion (los "S/C" se repiten, por eso no alcanza el código).
+ * body.nuevo = true agrega siempre; si no, actualiza la fila original
+ * (Orig_Nombre / Orig_Designacion) o agrega si no la encuentra.
+ */
+function guardarRepuesto_(body) {
+  const sheet = hoja_(SHEETS.REPUESTOS);
+  const datos = {};
+  ["Codigo_Equipo", "Nombre", "Marca", "Designacion", "Codigo_Repuesto", "Cant."].forEach(k => datos[k] = body[k] !== undefined ? body[k] : "");
+  let fila = -1;
+  if (!body.nuevo) {
+    fila = buscarFilaMulti_(sheet, {
+      Codigo_Equipo: body.Codigo_Equipo,
+      Nombre: body.Orig_Nombre !== undefined ? body.Orig_Nombre : body.Nombre,
+      Designacion: body.Orig_Designacion !== undefined ? body.Orig_Designacion : body.Designacion
+    });
+  }
+  if (fila === -1) agregarFilaPorEncabezados_(sheet, datos);
+  else actualizarFila_(sheet, fila, datos);
+  return {accion: "guardar_repuesto", Codigo_Equipo: body.Codigo_Equipo, actualizado: fila !== -1};
+}
+
+function eliminarRepuesto_(body) {
+  const sheet = hoja_(SHEETS.REPUESTOS);
+  const fila = buscarFilaMulti_(sheet, {
+    Codigo_Equipo: body.Codigo_Equipo, Nombre: body.Nombre, Designacion: body.Designacion
+  });
+  if (fila === -1) throw new Error("No se encontró ese repuesto.");
+  sheet.deleteRow(fila);
+  return {accion: "eliminar_repuesto", Codigo_Equipo: body.Codigo_Equipo};
+}
+
+/** Costo y plazo por repuesto. Upsert por Clave_Repuesto (la pestaña se crea sola). */
+function guardarPrecio_(body) {
+  const sheet = hojaOCrear_(SHEETS.PRECIOS,
+    ["Clave_Repuesto", "Codigo_Repuesto", "Nombre", "Designacion", "Costo_Unitario", "Plazo_Dias"]);
+  if (!body.Clave_Repuesto) throw new Error("Falta Clave_Repuesto.");
+  const fila = buscarFila_(sheet, "Clave_Repuesto", body.Clave_Repuesto);
+  if (fila === -1) agregarFilaPorEncabezados_(sheet, body);
+  else actualizarFila_(sheet, fila, body);
+  return {accion: "guardar_precio", Clave_Repuesto: body.Clave_Repuesto, actualizado: fila !== -1};
+}
+
 function carpetaImagenesSigma_() {
   const nombre = "SIGMA - Fotos de mantenimiento";
   const carpetas = DriveApp.getFoldersByName(nombre);
@@ -345,6 +427,29 @@ function agregarFilaPorEncabezados_(sheet, datos) {
   const headers = encabezados_(sheet);
   const fila = headers.map(h => (datos[h] !== undefined ? datos[h] : ""));
   sheet.appendRow(fila);
+}
+
+/** Crea la columna al final si la hoja todavía no la tiene. */
+function asegurarColumna_(sheet, nombre) {
+  const h = encabezados_(sheet);
+  if (h.indexOf(nombre) === -1) sheet.getRange(1, h.length + 1).setValue(nombre);
+}
+
+/** Devuelve la pestaña; si no existe, la crea con esos encabezados. */
+function hojaOCrear_(nombre, headers) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let s = ss.getSheetByName(nombre);
+  if (!s) { s = ss.insertSheet(nombre); s.appendRow(headers); }
+  return s;
+}
+
+/** Actualiza en la fila dada solo las columnas presentes en "datos". */
+function actualizarFila_(sheet, fila, datos) {
+  const h = encabezados_(sheet);
+  Object.keys(datos).forEach(k => {
+    const c = h.indexOf(k);
+    if (c !== -1) sheet.getRange(fila, c + 1).setValue(datos[k]);
+  });
 }
 
 /** Devuelve el número de fila (1-indexed) donde columna=valor, o -1 si no existe. */
@@ -375,6 +480,25 @@ function buscarFilaDoble_(sheet, columna1, valor1, columna2, valor2) {
     if (String(valores[i][col1]) === String(valor1) && String(valores[i][col2]) === String(valor2)) {
       return i + 2;
     }
+  }
+  return -1;
+}
+
+/** Fila (1-indexed) donde coinciden TODAS las columnas de "criterios"
+ *  ({columna: valor, ...}), o -1. Usado para Repuestos. */
+function buscarFilaMulti_(sheet, criterios) {
+  const headers = encabezados_(sheet);
+  const claves = Object.keys(criterios);
+  const idx = claves.map(c => {
+    const i = headers.indexOf(c);
+    if (i === -1) throw new Error("La pestaña no tiene columna '" + c + "'.");
+    return i;
+  });
+  const n = Math.max(sheet.getLastRow() - 1, 0);
+  if (!n) return -1;
+  const vals = sheet.getRange(2, 1, n, headers.length).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    if (claves.every((c, k) => String(vals[i][idx[k]]).trim() === String(criterios[c]).trim())) return i + 2;
   }
   return -1;
 }
