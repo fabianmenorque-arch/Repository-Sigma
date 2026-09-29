@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repuestos críticos · SIGMA</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="sigma-utils.js"></script>
+<style>
+.rp .tabs{display:flex;gap:.4rem;margin-bottom:1.3rem;border-bottom:1px solid var(--line)}
+.rp .tabs button{background:none;border:none;padding:.65rem 1.1rem;font-size:.85rem;font-weight:600;color:var(--steel-400);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.rp .tabs button.on{color:var(--amber-500);border-bottom-color:var(--amber-500)}
+.rp .bar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:1rem}
+.rp .bar label{display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--steel-200);text-transform:none;font-weight:500}
+.rp .bar input[type=checkbox]{width:auto;margin:0}
+.rp button.b{background:var(--steel-900);color:var(--steel-200);border:1px solid var(--line)}
+.rp .sc{overflow-x:auto}.rp td input{min-width:80px}
+.rp .kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.3rem}
+.rp .kp div{background:var(--steel-900);border:1px solid var(--line);border-radius:var(--radius-sm);padding:.8rem 1rem;font-size:.8rem;color:var(--steel-400)}
+.rp .kp b{display:block;font-size:1.5rem;color:var(--steel-200)}
+.rp .warn{color:var(--amber-500)}.rp .num{text-align:right}
+</style></head>
+<body>
+<div id="nav-slot"></div>
+<div class="container rp">
+  <div class="panel-head"><h1>Repuestos críticos</h1></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="plate panel"><div id="view">Cargando…</div></div>
+</div>
+<script>
+document.getElementById('nav-slot').innerHTML=sigmaRenderNav('repuestos');
+const S={eq:[],rep:[],pre:{},tab:'eq',q:'',sf:'',crit:new Set(['A','B']),shared:false,sel:'',onlyNo:false,lines:[],list:[]};
+const $=id=>document.getElementById(id);
+new MutationObserver(()=>document.querySelectorAll('#view table:not(.sigma-table)').forEach(t=>t.classList.add('sigma-table'))).observe($('view'),{childList:true,subtree:true});
+const norm=s=>String(s||'').trim().toUpperCase().replace(/\s+/g,' ');
+const num=v=>parseFloat(String(v||'').replace(',','.'))||0;
+const fmt=n=>Math.round(n).toLocaleString('es-AR');
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const clave=r=>{const c=norm(r.Codigo_Repuesto),ok=c&&c!=='S/C';return (ok?c:'S/C')+'|'+norm(r.Designacion)+(ok?'':'|'+norm(r.Nombre));};
+const CR=['A','B','C','X'];
+const LBL={A:'A · crítico',B:'B · importante',C:'C · bajo demanda',X:'Fuera (stock general)'};
+
+function sugerir(e){
+  const c=e.Codigo_SIGMA||'',m=((e.Maquina||'')+' '+(e.Ubicacion||'')).toLowerCase();
+  if(/^BV-(GE|TL)-|-(AC001|AD001|EC001|GB001)$/.test(c))return 'X';
+  if(/tamiz/.test(m))return 'B';
+  if(/turbina|turbogenerador|turbo |reductor|rotor|catalina|alimentaci[oó]n|mesa de ca[nñ]a|conductora/.test(m)&&!/desagote/.test(m))return 'A';
+  if(/floculante|soda|lechada|ceniza|barro|agua caliente|desagote|reserva|lavado de|agitador|elevador|paletiz|cargadora|semillero/.test(m))return 'C';
+  if(/centr[ií]fuga|jugo|vac[ií]o|barom|nemo|masa cocida|miel|compresor|filtro|regulador|rastra|esparcidor|vti|vtf|melado|jarabe|magma|cocimiento|secador/.test(m))return 'B';
+  return 'C';
+}
+
+async function fetchName(n){
+  const r=await fetch(`https://docs.google.com/spreadsheets/d/${SIGMA_CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${n}`,{cache:'no-store'});
+  const t=await r.text();
+  return t.split('\n')[0].includes('Clave_Repuesto')?sigmaParseCSV(t):[];
+}
+async function load(){
+  try{
+    [S.eq,S.rep]=await Promise.all([sigmaFetchTab('Equipos'),sigmaFetchTab('Repuestos')]);
+    (await fetchName('Precios').catch(()=>[])).forEach(p=>S.pre[p.Clave_Repuesto]=p);
+    render();
+  }catch(e){$('view').innerHTML='<p class="warn">No se pudieron leer los datos: '+esc(e.message)+'</p>';}
+}
+function render(){
+  $('tabs').innerHTML=[['eq','Equipos'],['rep','Repuestos por equipo'],['pre','Costos y presupuesto']]
+    .map(([t,l])=>`<button class="${S.tab===t?'on':''}" onclick="S.tab='${t}';render()">${l}</button>`).join('');
+  ({eq:viewEq,rep:viewRep,pre:viewPre})[S.tab]();
+}
+
+/* ---------- EQUIPOS ---------- */
+function viewEq(){
+  const sec=[...new Set(S.eq.map(e=>e.Sector).filter(Boolean))].sort();
+  const sin=S.eq.filter(e=>!e.Criticidad).length;
+  $('view').innerHTML=`<div class="bar">
+    <input id="q" placeholder="Buscar equipo o código" value="${esc(S.q)}" oninput="S.q=this.value;drawEq()">
+    <select onchange="S.sf=this.value;drawEq()"><option value="">Todos los sectores</option>${sec.map(s=>`<option ${S.sf===s?'selected':''}>${s}</option>`).join('')}</select>
+    <button class="b" onclick="sugerirTodos()">Aplicar sugerencia a los ${sin} sin clasificar</button>
+    <button class="b" onclick="$('nuevo').hidden=!$('nuevo').hidden">+ Agregar equipo</button></div>
+    <div id="nuevo" class="bar" hidden>
+      ${['Codigo_SIGMA','Sector','Ubicacion','Maquina','Modelo','Fabricante','Año'].map(k=>`<input id="n_${k}" placeholder="${k.replace('_',' ')}">`).join('')}
+      <select id="n_Criticidad">${CR.map(c=>`<option>${c}</option>`).join('')}</select>
+      <button class="b" onclick="addEq()">Guardar equipo</button></div>
+    <div class="sc" id="tbl"></div>`;
+  drawEq();
+}
+function drawEq(){
+  const q=S.q.toLowerCase(),cnt={};S.rep.forEach(r=>cnt[r.Codigo_Equipo]=(cnt[r.Codigo_Equipo]||0)+1);
+  const rows=S.eq.filter(e=>(!S.sf||e.Sector===S.sf)&&(e.Codigo_SIGMA+' '+e.Maquina+' '+e.Ubicacion).toLowerCase().includes(q));
+  $('tbl').innerHTML=`<table><tr><th>Código</th><th>Sector</th><th>Equipo</th><th>Repuestos</th><th>Criticidad</th></tr>`+
+   rows.map(e=>`<tr><td>${e.Codigo_SIGMA}</td><td>${esc(e.Sector)}</td><td>${esc(e.Maquina)}<br><small>${esc(e.Ubicacion)}</small></td>
+   <td>${cnt[e.Codigo_SIGMA]||'<span class="warn">sin cargar</span>'}</td>
+   <td><select onchange="setCrit('${e.Codigo_SIGMA}',this.value)"><option value="">Sin clasificar</option>${CR.map(c=>`<option value="${c}" ${e.Criticidad===c?'selected':''}>${LBL[c]}</option>`).join('')}</select></td></tr>`).join('')+'</table>';
+}
+async function setCrit(cod,v){
+  S.eq.find(e=>e.Codigo_SIGMA===cod).Criticidad=v;
+  await sigmaPost('actualizar_criticidad',{items:[{Codigo_SIGMA:cod,Criticidad:v}]});sigmaToast('Criticidad guardada');
+}
+async function sugerirTodos(){
+  const items=S.eq.filter(e=>!e.Criticidad).map(e=>({Codigo_SIGMA:e.Codigo_SIGMA,Criticidad:sugerir(e)}));
+  if(!items.length||!confirm('Se asignará una criticidad sugerida a '+items.length+' equipos. Podés cambiarla después. ¿Continuar?'))return;
+  items.forEach(i=>S.eq.find(e=>e.Codigo_SIGMA===i.Codigo_SIGMA).Criticidad=i.Criticidad);
+  await sigmaPost('actualizar_criticidad',{items});sigmaToast('Sugerencia aplicada');viewEq();
+}
+async function addEq(){
+  const o={};['Codigo_SIGMA','Sector','Ubicacion','Maquina','Modelo','Fabricante','Año','Criticidad'].forEach(k=>o[k]=$('n_'+k).value.trim());
+  if(!o.Codigo_SIGMA||!o.Maquina)return sigmaToast('Faltan código y nombre del equipo');
+  if(S.eq.some(e=>e.Codigo_SIGMA===o.Codigo_SIGMA))return sigmaToast('Ese código ya existe');
+  await sigmaPost('crear_equipo',o);S.eq.push(o);sigmaToast('Equipo agregado');viewEq();
+}
+
+/* ---------- REPUESTOS POR EQUIPO ---------- */
+function viewRep(){
+  $('view').innerHTML=`<div class="bar"><input list="dl" id="sel" placeholder="Código de equipo" value="${esc(S.sel)}" onchange="S.sel=this.value.trim();drawRep()">
+   <datalist id="dl">${S.eq.map(e=>`<option value="${e.Codigo_SIGMA}">${esc(e.Maquina)}</option>`).join('')}</datalist>
+   <button class="b" onclick="addRep()">+ Agregar repuesto</button></div><div class="sc" id="tbl"></div>`;
+  drawRep();
+}
+function drawRep(){
+  const eq=S.eq.find(e=>e.Codigo_SIGMA===S.sel);
+  if(!eq){$('tbl').innerHTML='<p>Elegí un equipo para ver o editar sus repuestos.</p>';return;}
+  const F=['Nombre','Marca','Designacion','Codigo_Repuesto','Cant.'];
+  $('tbl').innerHTML=`<p><b>${esc(eq.Maquina)}</b> · ${esc(eq.Ubicacion)}</p><table><tr>${F.map(f=>`<th>${f.replace('_',' ')}</th>`).join('')}<th></th></tr>`+
+   S.rep.map((r,i)=>r.Codigo_Equipo!==S.sel?'':`<tr>${F.map((f,j)=>`<td><input id="r${i}_${j}" value="${esc(r[f])}"></td>`).join('')}
+   <td><button class="b" onclick="saveRep(${i})">Guardar</button> <button class="b" onclick="delRep(${i})">Quitar</button></td></tr>`).join('')+'</table>';
+}
+function addRep(){if(!S.sel)return sigmaToast('Elegí un equipo primero');S.rep.push({Codigo_Equipo:S.sel,Nombre:'',Marca:'',Designacion:'',Codigo_Repuesto:'','Cant.':'',_nuevo:true});drawRep();}
+async function saveRep(i){
+  const r=S.rep[i],F=['Nombre','Marca','Designacion','Codigo_Repuesto','Cant.'],o={Codigo_Equipo:r.Codigo_Equipo};
+  F.forEach((f,j)=>o[f]=$(`r${i}_${j}`).value.trim());
+  if(!o.Nombre)return sigmaToast('El repuesto necesita un nombre');
+  await sigmaPost('guardar_repuesto',{...o,Orig_Nombre:r.Nombre,Orig_Designacion:r.Designacion,nuevo:!!r._nuevo});
+  Object.assign(r,o);delete r._nuevo;sigmaToast('Repuesto guardado');
+}
+async function delRep(i){
+  const r=S.rep[i];if(!confirm('¿Quitar este repuesto del equipo?'))return;
+  if(!r._nuevo)await sigmaPost('eliminar_repuesto',{Codigo_Equipo:r.Codigo_Equipo,Nombre:r.Nombre,Designacion:r.Designacion});
+  S.rep.splice(i,1);drawRep();sigmaToast('Repuesto quitado');
+}
+
+/* ---------- COSTOS Y PRESUPUESTO ---------- */
+function calc(){
+  const cr={},sc={};S.eq.forEach(e=>{cr[e.Codigo_SIGMA]=e.Criticidad||'?';sc[e.Codigo_SIGMA]=e.Sector||'?';});
+  const L={};
+  S.rep.forEach(r=>{
+    const c=cr[r.Codigo_Equipo]||'?';if(!S.crit.has(c))return;
+    const k=clave(r),s=sc[r.Codigo_Equipo]||'?',key=S.shared?k:k+'|'+s+'|'+c,q=num(r['Cant.']);
+    const it=L[key]||(L[key]={k,r,s,c,q:0});
+    it.q=S.shared?Math.max(it.q,q):it.q+q;
+  });
+  S.lines=Object.values(L);
+  const U={};S.lines.forEach(l=>{const u=U[l.k]||(U[l.k]={k:l.k,r:l.r,q:0});u.q+=l.q;});
+  S.list=Object.values(U).sort((a,b)=>(!!S.pre[a.k]-!!S.pre[b.k])||norm(a.r.Nombre).localeCompare(norm(b.r.Nombre)));
+}
+const precio=k=>num(S.pre[k]&&S.pre[k].Costo_Unitario);
+function viewPre(){
+  const sin=S.eq.filter(e=>!e.Criticidad).length;
+  $('view').innerHTML=`<div class="bar">Incluir:
+   ${['A','B','C','?'].map(c=>`<label><input type="checkbox" ${S.crit.has(c)?'checked':''} onchange="this.checked?S.crit.add('${c}'):S.crit.delete('${c}');viewPre()"> ${c==='?'?'Sin clasificar ('+sin+')':c}</label>`).join(' ')}
+   <label><input type="checkbox" ${S.shared?'checked':''} onchange="S.shared=this.checked;viewPre()"> Stock compartido entre equipos (cantidad máxima)</label>
+   <label><input type="checkbox" ${S.onlyNo?'checked':''} onchange="S.onlyNo=this.checked;drawList()"> Solo sin costo</label>
+   <button class="b" onclick="exportar()">Exportar a Excel</button></div>
+   <div id="sum"></div><div class="sc" id="tbl"></div>`;
+  calc();drawSum();drawList();
+}
+function drawSum(){
+  const M={},T={};let tot=0,sinP=new Set();
+  S.lines.forEach(l=>{const v=l.q*precio(l.k);tot+=v;if(!S.pre[l.k])sinP.add(l.k);
+    (M[l.s]=M[l.s]||{})[l.c]=(M[l.s][l.c]||0)+v;T[l.c]=(T[l.c]||0)+v;});
+  const cols=['A','B','C','?'].filter(c=>S.crit.has(c));
+  $('sum').innerHTML=`<div class="kp"><div><b>${fmt(tot)}</b>Presupuesto total</div><div><b>${S.list.length}</b>Repuestos distintos</div>
+   <div><b class="${sinP.size?'warn':''}">${sinP.size}</b>Sin costo cargado</div></div>
+   <div class="sc"><table><tr><th>Sector</th>${cols.map(c=>`<th class="num">${c}</th>`).join('')}<th class="num">Total</th></tr>`+
+   Object.keys(M).sort().map(s=>`<tr><td>${esc(s)}</td>${cols.map(c=>`<td class="num">${fmt(M[s][c]||0)}</td>`).join('')}<td class="num">${fmt(Object.values(M[s]).reduce((a,b)=>a+b,0))}</td></tr>`).join('')+
+   `<tr><th>Total</th>${cols.map(c=>`<th class="num">${fmt(T[c]||0)}</th>`).join('')}<th class="num">${fmt(tot)}</th></tr></table></div>`;
+}
+function drawList(){
+  const rows=S.list.map((u,i)=>[u,i]).filter(([u])=>!S.onlyNo||!S.pre[u.k]);
+  $('tbl').innerHTML=`<h3>Costo por repuesto</h3><table><tr><th>Repuesto</th><th>Designación</th><th>Código</th><th class="num">Cant. total</th><th>Costo unitario</th><th>Plazo (días)</th></tr>`+
+   rows.map(([u,i])=>{const p=S.pre[u.k]||{};return `<tr><td>${esc(u.r.Nombre)}</td><td>${esc(u.r.Designacion)}</td><td>${esc(u.r.Codigo_Repuesto)}</td><td class="num">${u.q}</td>
+   <td><input type="number" min="0" step="any" value="${esc(p.Costo_Unitario)}" onchange="setPre(${i},'Costo_Unitario',this.value)"></td>
+   <td><input type="number" min="0" value="${esc(p.Plazo_Dias)}" onchange="setPre(${i},'Plazo_Dias',this.value)"></td></tr>`;}).join('')+'</table>';
+}
+async function setPre(i,f,v){
+  const u=S.list[i],p=S.pre[u.k]||(S.pre[u.k]={Clave_Repuesto:u.k,Codigo_Repuesto:u.r.Codigo_Repuesto,Nombre:u.r.Nombre,Designacion:u.r.Designacion});
+  p[f]=v===''?'':Number(v);drawSum();
+  await sigmaPost('guardar_precio',{...p});sigmaToast('Costo guardado');
+}
+function exportar(){
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.lines.map(l=>({Sector:l.s,Criticidad:l.c,Repuesto:l.r.Nombre,Designacion:l.r.Designacion,Codigo:l.r.Codigo_Repuesto,Cantidad:l.q,Costo_Unitario:precio(l.k),Subtotal:l.q*precio(l.k)}))),'Presupuesto');
+  XLSX.writeFile(wb,'presupuesto_repuestos.xlsx');
+}
+load();
+</script></body></html>
