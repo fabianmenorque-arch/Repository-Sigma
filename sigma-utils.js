@@ -43,15 +43,101 @@ const SIGMA_CONFIG = {
 };
 
 /* ---------------------------------------------------------------
-   2. LECTURA DE DATOS — Google Sheets como CSV público
+   2. SESIÓN, USUARIOS Y PERMISOS
+   El navegador NO decide nada: guarda el token que entrega el servidor
+   (Apps Script) y lo envía en cada pedido. Cada lectura y escritura se
+   valida de nuevo en el servidor según el rol. Lo de acá (ocultar pantallas
+   o botones) es solo comodidad: la seguridad real está en Code.gs.
    --------------------------------------------------------------- */
 
-function sigmaCsvUrl(tabName){
-  const gid = SIGMA_CONFIG.GIDS[tabName];
-  return `https://docs.google.com/spreadsheets/d/${SIGMA_CONFIG.SHEET_ID}/export?format=csv&gid=${gid}`;
+// Carpeta raíz del sitio (donde vive este archivo), sin importar la profundidad de la página.
+const SIGMA_BASE_URL = (function(){
+  try{ return new URL(".", document.currentScript.src).href; }
+  catch(e){ return ""; }
+})();
+
+const SIGMA_SESION_KEY = "sigma_sesion_v1";
+
+function sigmaSesion(){
+  try{
+    const ses = JSON.parse(localStorage.getItem(SIGMA_SESION_KEY) || "null");
+    if(!ses || !ses.token || !ses.expira || Date.now() > ses.expira){
+      localStorage.removeItem(SIGMA_SESION_KEY);
+      return null;
+    }
+    return ses;
+  }catch(e){ return null; }
 }
 
-/** Parser CSV simple, soporta comillas y comas dentro de campos */
+function sigmaGuardarSesion(ses){
+  try{ localStorage.setItem(SIGMA_SESION_KEY, JSON.stringify(ses)); }catch(e){}
+}
+
+function sigmaIrALogin(){
+  const volver = location.pathname + location.search + location.hash;
+  location.replace(`${SIGMA_BASE_URL}login.html?volver=${encodeURIComponent(volver)}`);
+}
+
+function sigmaCerrarSesion(redirigir = true){
+  try{ localStorage.removeItem(SIGMA_SESION_KEY); }catch(e){}
+  if(redirigir) sigmaIrALogin();
+}
+
+function sigmaRol(){ const s = sigmaSesion(); return s ? s.rol : null; }
+function sigmaUsuarioActual(){ return sigmaSesion(); }
+function sigmaPuede(accion){
+  const s = sigmaSesion();
+  return !!(s && s.permisos && s.permisos.escribir.includes(accion));
+}
+function sigmaPuedeLeer(tab){
+  const s = sigmaSesion();
+  return !!(s && s.permisos && s.permisos.leer.includes(tab));
+}
+function sigmaTienePagina(id){
+  const s = sigmaSesion();
+  return !!(s && s.permisos && s.permisos.paginas.includes(id));
+}
+
+/** Llamada al servidor (Apps Script). Devuelve "data" o lanza Error con el mensaje legible. */
+async function sigmaApi(action, payload = {}){
+  const ses = sigmaSesion();
+  const cuerpo = {action, ...payload};
+  if(action !== "login"){
+    if(!ses){ sigmaIrALogin(); throw new Error("Iniciá sesión para continuar."); }
+    cuerpo.token = ses.token;
+  }
+  let res;
+  try{
+    // text/plain evita el "preflight" de CORS, que Apps Script no soporta.
+    res = await fetch(SIGMA_CONFIG.APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: {"Content-Type": "text/plain;charset=utf-8"},
+      body: JSON.stringify(cuerpo)
+    });
+  }catch(e){
+    throw new Error("No hay conexión con el servidor de SIGMA. Revisá tu internet e intentá de nuevo.");
+  }
+  let json;
+  try{ json = await res.json(); }
+  catch(e){ throw new Error("El servidor de SIGMA devolvió una respuesta inesperada. Intentá de nuevo."); }
+
+  if(!json.ok){
+    if(json.codigo === "SESION" && action !== "login") sigmaCerrarSesion(true);
+    const err = new Error(json.error || "Error del servidor.");
+    err.codigo = json.codigo || "";
+    throw err;
+  }
+  return json.data;
+}
+
+/* ---------------------------------------------------------------
+   3. LECTURA DE DATOS — vía Apps Script (según el rol)
+   Los pedidos de varias pestañas hechos casi al mismo tiempo se agrupan
+   en UNA sola llamada al servidor (más rápido). Si el rol no puede ver una
+   pestaña, esa lectura falla con un mensaje claro y las demás siguen.
+   --------------------------------------------------------------- */
+
+/** Parser CSV simple (se conserva por compatibilidad con código que lo use). */
 function sigmaParseCSV(text){
   const rows = [];
   let row = [], field = "", inQuotes = false;
@@ -81,28 +167,109 @@ function sigmaParseCSV(text){
     });
 }
 
-/** Trae y parsea una pestaña completa. Devuelve array de objetos {columna: valor}. */
-async function sigmaFetchTab(tabName){
-  const res = await fetch(sigmaCsvUrl(tabName), {cache:"no-store"});
-  if(!res.ok) throw new Error(`No se pudo leer la pestaña ${tabName} (HTTP ${res.status})`);
-  const text = await res.text();
-  return sigmaParseCSV(text);
+let _lecturasPendientes = {};
+let _lecturasTimer = null;
+
+/** Trae una pestaña completa. Devuelve array de objetos {columna: valor}. */
+function sigmaFetchTab(tabName){
+  return new Promise((resolve, reject) => {
+    (_lecturasPendientes[tabName] = _lecturasPendientes[tabName] || []).push({resolve, reject});
+    if(!_lecturasTimer) _lecturasTimer = setTimeout(_sigmaEnviarLecturas, 15);
+  });
+}
+
+async function _sigmaEnviarLecturas(){
+  const lote = _lecturasPendientes;
+  _lecturasPendientes = {};
+  _lecturasTimer = null;
+  const tablas = Object.keys(lote);
+  try{
+    const data = await sigmaApi("leer", {tablas});
+    tablas.forEach(t => {
+      const r = data[t];
+      lote[t].forEach((p, i) => {
+        if(r && r.ok) p.resolve(i === 0 ? r.filas : r.filas.map(o => ({...o})));
+        else p.reject(new Error((r && r.error) || `No se pudo leer la pestaña ${t}`));
+      });
+    });
+  }catch(e){
+    tablas.forEach(t => lote[t].forEach(p => p.reject(e)));
+  }
 }
 
 /* ---------------------------------------------------------------
-   3. ESCRITURA DE DATOS — Google Apps Script Web App (no-cors)
-   El modo no-cors no permite leer la respuesta: se asume éxito si
-   fetch no lanza excepción, y la UI se actualiza de forma optimista.
+   3b. ESCRITURA DE DATOS — Apps Script, con identidad y permisos
+   Ahora se lee la respuesta: si el rol no permite la acción o falla el
+   guardado, se lanza un Error (las pantallas ya muestran "No se pudo guardar").
    --------------------------------------------------------------- */
 async function sigmaPost(action, payload){
-  await fetch(SIGMA_CONFIG.APPS_SCRIPT_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: {"Content-Type":"text/plain;charset=utf-8"},
-    body: JSON.stringify({action, ...payload})
-  });
+  if(!sigmaPuede(action)){
+    throw new Error("Tu rol no permite realizar esta acción.");
+  }
+  await sigmaApi(action, payload || {});
   return true;
 }
+
+/* ---------------------------------------------------------------
+   3c. GUARDIA DE SESIÓN — corre apenas se carga el script, antes de
+   dibujar la página. Sin sesión → login. Clave temporal → cambiar clave.
+   Las páginas públicas (login) declaran window.SIGMA_PUBLICA = true antes.
+   --------------------------------------------------------------- */
+(function sigmaGuardia(){
+  if(window.SIGMA_PUBLICA) return;
+  const ses = sigmaSesion();
+  if(!ses){ sigmaIrALogin(); return; }
+  if(ses.debeCambiar && !window.SIGMA_CUENTA){
+    location.replace(`${SIGMA_BASE_URL}cuenta.html?obligatorio=1`);
+  }
+})();
+
+// Red de seguridad: si una pantalla no captura el error de un guardado rechazado
+// (por ejemplo, falta de permiso), igual se le avisa a la persona.
+window.addEventListener("unhandledrejection", ev => {
+  const m = ev && ev.reason && ev.reason.message;
+  if(m) sigmaToast(m);
+});
+
+/** Oculta o bloquea lo que el rol no puede usar. Marcas en el HTML:
+ *   data-requiere="accion1,accion2"          → se oculta si no puede NINGUNA de esas acciones
+ *   data-requiere-bloquear="accion1,accion2" → se deshabilita (queda visible) si no puede ninguna
+ *   data-requiere-leer="Pestaña"             → se oculta si el rol no puede leer esa pestaña
+ */
+function sigmaAplicarPermisos(raiz){
+  const base = raiz && raiz.querySelectorAll ? raiz : document;
+  const alguna = lista => String(lista).split(",").map(x => x.trim()).filter(Boolean).some(a => sigmaPuede(a));
+  base.querySelectorAll("[data-requiere]").forEach(el => {
+    if(!alguna(el.dataset.requiere)) el.hidden = true;
+  });
+  base.querySelectorAll("[data-requiere-bloquear]").forEach(el => {
+    if(!alguna(el.dataset.requiereBloquear)){
+      el.disabled = true;
+      el.title = "Tu rol no permite modificar esto";
+      el.style.cursor = "not-allowed";
+    }
+  });
+  // Fichas de equipo (194 páginas generadas): el panel de mediciones se oculta sin tocar cada archivo.
+  const formMed = base.querySelector ? base.querySelector("#form-medicion") : null;
+  if(formMed && !sigmaPuede("registrar_medicion")){
+    const panel = formMed.closest(".panel");
+    if(panel) panel.hidden = true;
+  }
+  base.querySelectorAll("[data-requiere-leer]").forEach(el => {
+    if(!sigmaPuedeLeer(el.dataset.requiereLeer)) el.hidden = true;
+  });
+}
+
+// También se aplica a lo que cada pantalla dibuje después (tablas, formularios dinámicos).
+document.addEventListener("DOMContentLoaded", () => {
+  sigmaAplicarPermisos(document);
+  let pendiente = false;
+  new MutationObserver(() => {
+    if(pendiente) return;
+    pendiente = true;
+    requestAnimationFrame(() => { pendiente = false; sigmaAplicarPermisos(document); });
+  }).observe(document.body, {childList: true, subtree: true});
+});
 
 /* ---------------------------------------------------------------
    4. CÁLCULO DE KPIs — MTTR / MTBF / Disponibilidad
@@ -252,9 +419,16 @@ function sigmaToast(msg){
   setTimeout(() => el.remove(), 3200);
 }
 
-/** Barra de navegación compartida (sidebar). activePage: "dashboard"|"ordenes"|"equipos"|"qr"|"informes"|"alta"|"gestion"|"analisis"|"repuestos"|"novedades"|"bombas" */
+/** Barra de navegación compartida (sidebar). activePage: "dashboard"|"ordenes"|"equipos"|"qr"|"informes"|"alta"|"gestion"|"analisis"|"repuestos"|"novedades"|"bombas"|"usuarios"|"cuenta" */
 function sigmaRenderNav(activePage, basePath = ""){
   sigmaSetFavicon(basePath);
+
+  // Guardia de página: si el rol no tiene acceso a esta pantalla, vuelve al Dashboard.
+  const sesion = sigmaSesion();
+  const paginasLibres = ["cuenta"];
+  if(sesion && !paginasLibres.includes(activePage) && !sigmaTienePagina(activePage)){
+    location.replace(`${SIGMA_BASE_URL}dashboard.html`);
+  }
 
   const iconos = {
     dashboard: '<svg viewBox="0 0 24 24"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l3.4-4.4"/><circle cx="12" cy="15" r="1.1" fill="currentColor" stroke="none"/></svg>',
@@ -267,7 +441,8 @@ function sigmaRenderNav(activePage, basePath = ""){
     alta: '<svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M12 9v6M9 12h6"/></svg>',
     gestion: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.3"/><path d="M12 3v2.4M12 18.6V21M21 12h-2.4M5.4 12H3M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7M18.4 18.4l-1.7-1.7M7.3 7.3 5.6 5.6"/></svg>',
     novedades: '<svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
-    bombas: '<svg viewBox="0 0 24 24"><path d="M12 3c3 4 6 7.2 6 10.5a6 6 0 1 1-12 0C6 10.2 9 7 12 3z"/></svg>'
+    bombas: '<svg viewBox="0 0 24 24"><path d="M12 3c3 4 6 7.2 6 10.5a6 6 0 1 1-12 0C6 10.2 9 7 12 3z"/></svg>',
+    usuarios: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.6a3.3 3.3 0 0 1 0 6.4M18 14.2c2 .7 3.4 2.6 3.4 5.3"/></svg>'
   };
 
   const links = [
@@ -281,8 +456,9 @@ function sigmaRenderNav(activePage, basePath = ""){
     {id:"repuestos", href:`${basePath}repuestos.html`, label:"Repuestos"},
     {id:"bombas", href:`${basePath}simulador_bombas.html`, label:"Simulador de bombas"},
     {id:"alta", href:`${basePath}alta_nuevo_equipo.html`, label:"Alta de equipo"},
-    {id:"gestion", href:`${basePath}gestion_hojas.html`, label:"Gestión"}
-  ];
+    {id:"gestion", href:`${basePath}gestion_hojas.html`, label:"Gestión"},
+    {id:"usuarios", href:`${basePath}usuarios.html`, label:"Usuarios"}
+  ].filter(l => !sesion || sigmaTienePagina(l.id));
   const linksHtml = links.map(l =>
     `<a class="nav-link${l.id===activePage?" active":""}" href="${l.href}">${iconos[l.id]}${l.label}</a>`
   ).join("");
@@ -294,7 +470,21 @@ function sigmaRenderNav(activePage, basePath = ""){
       Sigma
     </div>
     <div class="links">${linksHtml}</div>
+    ${sesion ? `
+    <div class="nav-user">
+      <div class="nav-user-nombre">${sigmaEsc(sesion.nombre || sesion.usuario)}</div>
+      <div class="nav-user-rol">${sigmaEsc(sesion.rolNombre || sesion.rol)}</div>
+      <div class="nav-user-acciones">
+        <a href="${basePath}cuenta.html">Mi cuenta</a>
+        <a href="#" onclick="sigmaCerrarSesion();return false;">Cerrar sesión</a>
+      </div>
+    </div>` : ""}
   </nav>`;
+}
+
+/** Escapa texto para insertarlo en HTML. */
+function sigmaEsc(t){
+  return String(t ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 /** Inserta el favicon (una sola vez) usando el isotipo, respetando la profundidad de carpeta de cada página. */

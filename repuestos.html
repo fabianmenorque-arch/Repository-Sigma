@@ -49,20 +49,15 @@ function sugerir(e){
   return 'C';
 }
 
-async function fetchName(n){
-  const r=await fetch(`https://docs.google.com/spreadsheets/d/${SIGMA_CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${n}`,{cache:'no-store'});
-  const t=await r.text();
-  return t.split('\n')[0].includes('Clave_Repuesto')?sigmaParseCSV(t):[];
-}
 async function load(){
   try{
-    [S.eq,S.rep]=await Promise.all([sigmaFetchTab('Equipos'),sigmaFetchTab('Repuestos')]);
-    (await fetchName('Precios').catch(()=>[])).forEach(p=>S.pre[p.Clave_Repuesto]=p);
+    const [eq,rep,pre]=await Promise.all([sigmaFetchTab('Equipos'),sigmaFetchTab('Repuestos'),sigmaFetchTab('Precios').catch(()=>[])]);
+    S.eq=eq;S.rep=rep;pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
     render();
   }catch(e){$('view').innerHTML='<p class="warn">No se pudieron leer los datos: '+esc(e.message)+'</p>';}
 }
 function render(){
-  $('tabs').innerHTML=[['eq','Equipos'],['rep','Repuestos por equipo'],['pre','Costos y presupuesto']]
+  $('tabs').innerHTML=[['eq','Equipos'],['rep','Repuestos por equipo'],['pre','Costos y presupuesto']].filter(([t])=>t!=='pre'||sigmaPuedeLeer('Precios'))
     .map(([t,l])=>`<button class="${S.tab===t?'on':''}" onclick="S.tab='${t}';render()">${l}</button>`).join('');
   ({eq:viewEq,rep:viewRep,pre:viewPre})[S.tab]();
 }
@@ -74,9 +69,9 @@ function viewEq(){
   $('view').innerHTML=`<div class="bar">
     <input id="q" placeholder="Buscar equipo o código" value="${esc(S.q)}" oninput="S.q=this.value;drawEq()">
     <select onchange="S.sf=this.value;drawEq()"><option value="">Todos los sectores</option>${sec.map(s=>`<option ${S.sf===s?'selected':''}>${s}</option>`).join('')}</select>
-    <button class="b" onclick="sugerirTodos()">Aplicar sugerencia a los ${sin} sin clasificar</button>
-    <button class="b" onclick="$('nuevo').hidden=!$('nuevo').hidden">+ Agregar equipo</button></div>
-    <div id="nuevo" class="bar" hidden>
+    <button class="b" data-requiere="actualizar_criticidad" onclick="sugerirTodos()">Aplicar sugerencia a los ${sin} sin clasificar</button>
+    <button class="b" data-requiere="crear_equipo" onclick="$('nuevo').hidden=!$('nuevo').hidden">+ Agregar equipo</button></div>
+    <div id="nuevo" class="bar" data-requiere="crear_equipo" hidden>
       ${['Codigo_SIGMA','Sector','Ubicacion','Maquina','Modelo','Fabricante','Año'].map(k=>`<input id="n_${k}" placeholder="${k.replace('_',' ')}">`).join('')}
       <select id="n_Criticidad">${CR.map(c=>`<option>${c}</option>`).join('')}</select>
       <button class="b" onclick="addEq()">Guardar equipo</button></div>
@@ -89,7 +84,7 @@ function drawEq(){
   $('tbl').innerHTML=`<table><tr><th>Código</th><th>Sector</th><th>Equipo</th><th>Repuestos</th><th>Criticidad</th></tr>`+
    rows.map(e=>`<tr><td>${e.Codigo_SIGMA}</td><td>${esc(e.Sector)}</td><td>${esc(e.Maquina)}<br><small>${esc(e.Ubicacion)}</small></td>
    <td>${cnt[e.Codigo_SIGMA]||'<span class="warn">sin cargar</span>'}</td>
-   <td><select onchange="setCrit('${e.Codigo_SIGMA}',this.value)"><option value="">Sin clasificar</option>${CR.map(c=>`<option value="${c}" ${e.Criticidad===c?'selected':''}>${LBL[c]}</option>`).join('')}</select></td></tr>`).join('')+'</table>';
+   <td><select data-requiere-bloquear="actualizar_criticidad" onchange="setCrit('${e.Codigo_SIGMA}',this.value)"><option value="">Sin clasificar</option>${CR.map(c=>`<option value="${c}" ${e.Criticidad===c?'selected':''}>${LBL[c]}</option>`).join('')}</select></td></tr>`).join('')+'</table>';
 }
 async function setCrit(cod,v){
   S.eq.find(e=>e.Codigo_SIGMA===cod).Criticidad=v;
@@ -112,7 +107,7 @@ async function addEq(){
 function viewRep(){
   $('view').innerHTML=`<div class="bar"><input list="dl" id="sel" placeholder="Código de equipo" value="${esc(S.sel)}" onchange="S.sel=this.value.trim();drawRep()">
    <datalist id="dl">${S.eq.map(e=>`<option value="${e.Codigo_SIGMA}">${esc(e.Maquina)}</option>`).join('')}</datalist>
-   <button class="b" onclick="addRep()">+ Agregar repuesto</button></div><div class="sc" id="tbl"></div>`;
+   <button class="b" data-requiere="guardar_repuesto" onclick="addRep()">+ Agregar repuesto</button></div><div class="sc" id="tbl"></div>`;
   drawRep();
 }
 function drawRep(){
@@ -120,8 +115,8 @@ function drawRep(){
   if(!eq){$('tbl').innerHTML='<p>Elegí un equipo para ver o editar sus repuestos.</p>';return;}
   const F=['Nombre','Marca','Designacion','Codigo_Repuesto','Cant.'];
   $('tbl').innerHTML=`<p><b>${esc(eq.Maquina)}</b> · ${esc(eq.Ubicacion)}</p><table><tr>${F.map(f=>`<th>${f.replace('_',' ')}</th>`).join('')}<th></th></tr>`+
-   S.rep.map((r,i)=>r.Codigo_Equipo!==S.sel?'':`<tr>${F.map((f,j)=>`<td><input id="r${i}_${j}" value="${esc(r[f])}"></td>`).join('')}
-   <td><button class="b" onclick="saveRep(${i})">Guardar</button> <button class="b" onclick="delRep(${i})">Quitar</button></td></tr>`).join('')+'</table>';
+   S.rep.map((r,i)=>r.Codigo_Equipo!==S.sel?'':`<tr>${F.map((f,j)=>`<td><input data-requiere-bloquear="guardar_repuesto" id="r${i}_${j}" value="${esc(r[f])}"></td>`).join('')}
+   <td><button class="b" data-requiere="guardar_repuesto" onclick="saveRep(${i})">Guardar</button> <button class="b" data-requiere="eliminar_repuesto" onclick="delRep(${i})">Quitar</button></td></tr>`).join('')+'</table>';
 }
 function addRep(){if(!S.sel)return sigmaToast('Elegí un equipo primero');S.rep.push({Codigo_Equipo:S.sel,Nombre:'',Marca:'',Designacion:'',Codigo_Repuesto:'','Cant.':'',_nuevo:true});drawRep();}
 async function saveRep(i){
@@ -177,8 +172,8 @@ function drawList(){
   const rows=S.list.map((u,i)=>[u,i]).filter(([u])=>!S.onlyNo||!S.pre[u.k]);
   $('tbl').innerHTML=`<h3>Costo por repuesto</h3><table><tr><th>Repuesto</th><th>Designación</th><th>Código</th><th class="num">Cant. total</th><th>Costo unitario</th><th>Plazo (días)</th></tr>`+
    rows.map(([u,i])=>{const p=S.pre[u.k]||{};return `<tr><td>${esc(u.r.Nombre)}</td><td>${esc(u.r.Designacion)}</td><td>${esc(u.r.Codigo_Repuesto)}</td><td class="num">${u.q}</td>
-   <td><input type="number" min="0" step="any" value="${esc(p.Costo_Unitario)}" onchange="setPre(${i},'Costo_Unitario',this.value)"></td>
-   <td><input type="number" min="0" value="${esc(p.Plazo_Dias)}" onchange="setPre(${i},'Plazo_Dias',this.value)"></td></tr>`;}).join('')+'</table>';
+   <td><input data-requiere-bloquear="guardar_precio" type="number" min="0" step="any" value="${esc(p.Costo_Unitario)}" onchange="setPre(${i},'Costo_Unitario',this.value)"></td>
+   <td><input data-requiere-bloquear="guardar_precio" type="number" min="0" value="${esc(p.Plazo_Dias)}" onchange="setPre(${i},'Plazo_Dias',this.value)"></td></tr>`;}).join('')+'</table>';
 }
 async function setPre(i,f,v){
   const u=S.list[i],p=S.pre[u.k]||(S.pre[u.k]={Clave_Repuesto:u.k,Codigo_Repuesto:u.r.Codigo_Repuesto,Nombre:u.r.Nombre,Designacion:u.r.Designacion});

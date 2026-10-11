@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Ingresar | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script>window.SIGMA_PUBLICA = true;</script>
+<script src="sigma-utils.js"></script>
+</head>
+<body class="pantalla-acceso">
+
+<div class="plate acceso-card">
+  <div class="marca">
+    <img src="assets/isotipo-v3.svg" alt="">
+    <div><strong>Sigma</strong><span>Gestión del Mantenimiento · Ingenio Bella Vista</span></div>
+  </div>
+
+  <div id="aviso" class="msg-info" style="display:none;"></div>
+  <div id="error" class="msg-error" style="display:none;"></div>
+
+  <form id="form-login" autocomplete="on">
+    <div class="field">
+      <label for="usuario">Usuario</label>
+      <input type="text" id="usuario" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    </div>
+    <div class="field campo-clave">
+      <label for="clave">Contraseña</label>
+      <input type="password" id="clave" name="password" autocomplete="current-password" required>
+      <button type="button" class="secondary ver" id="btn-ver">Ver</button>
+    </div>
+    <button type="submit" id="btn-ingresar">Ingresar</button>
+  </form>
+
+  <p class="ayuda" style="margin-top:1rem;">¿Olvidaste tu contraseña? Pedile al Administrador que te la restablezca.</p>
+</div>
+
+<script>
+sigmaSetFavicon("");
+
+// Si ya hay una sesión vigente, no hace falta volver a ingresar.
+(function(){
+  const ses = sigmaSesion();
+  if(ses) irAlSistema(ses);
+})();
+
+function destinoSeguro(){
+  const volver = new URLSearchParams(location.search).get("volver");
+  if(!volver) return `${SIGMA_BASE_URL}dashboard.html`;
+  try{
+    const u = new URL(volver, location.origin);
+    const raiz = new URL(SIGMA_BASE_URL).pathname;
+    if(u.origin === location.origin && u.pathname.startsWith(raiz) && !u.pathname.endsWith("login.html")) return u.href;
+  }catch(e){}
+  return `${SIGMA_BASE_URL}dashboard.html`;
+}
+
+function irAlSistema(ses){
+  if(ses.debeCambiar) location.replace(`${SIGMA_BASE_URL}cuenta.html?obligatorio=1`);
+  else location.replace(destinoSeguro());
+}
+
+function mostrarError(msg){
+  const el = document.getElementById("error");
+  el.textContent = msg;
+  el.style.display = msg ? "block" : "none";
+}
+
+if(new URLSearchParams(location.search).has("volver")){
+  const a = document.getElementById("aviso");
+  a.textContent = "Ingresá para continuar.";
+  a.style.display = "block";
+}
+
+document.getElementById("btn-ver").addEventListener("click", e => {
+  const campo = document.getElementById("clave");
+  const ver = campo.type === "password";
+  campo.type = ver ? "text" : "password";
+  e.target.textContent = ver ? "Ocultar" : "Ver";
+});
+
+document.getElementById("form-login").addEventListener("submit", async e => {
+  e.preventDefault();
+  mostrarError("");
+  const btn = document.getElementById("btn-ingresar");
+  btn.disabled = true; btn.textContent = "Verificando…";
+  try{
+    const ses = await sigmaApi("login", {
+      Usuario: document.getElementById("usuario").value,
+      Clave: document.getElementById("clave").value
+    });
+    sigmaGuardarSesion(ses);
+    irAlSistema(ses);
+  }catch(err){
+    mostrarError(err.message);
+    document.getElementById("clave").value = "";
+    document.getElementById("clave").focus();
+    btn.disabled = false; btn.textContent = "Ingresar";
+  }
+});
+</script>
+</body>
+</html>

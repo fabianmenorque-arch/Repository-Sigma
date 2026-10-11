@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Mi cuenta | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script>window.SIGMA_CUENTA = true;</script>
+<script src="sigma-utils.js"></script>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head"><h1>Mi cuenta</h1></div>
+
+  <div class="grid-2">
+    <div class="plate panel">
+      <div class="panel-head"><h2>Mis datos</h2></div>
+      <div class="field"><label>Nombre</label><div id="dato-nombre">—</div></div>
+      <div class="field"><label>Usuario</label><div id="dato-usuario" class="mono">—</div></div>
+      <div class="field"><label>Rol</label><div id="dato-rol">—</div></div>
+      <p class="ayuda">Para cambiar tu nombre o tu rol, pedíselo a un Administrador.</p>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Cambiar contraseña</h2></div>
+      <div id="aviso-obligatorio" class="msg-info" style="display:none;">
+        Ingresaste con una contraseña temporal. Elegí una contraseña propia para poder usar el sistema.
+      </div>
+      <div id="error" class="msg-error" style="display:none;"></div>
+      <form id="form-clave" autocomplete="off">
+        <div class="field">
+          <label for="clave-actual">Contraseña actual</label>
+          <input type="password" id="clave-actual" autocomplete="current-password" required>
+        </div>
+        <div class="field">
+          <label for="clave-nueva">Contraseña nueva</label>
+          <input type="password" id="clave-nueva" autocomplete="new-password" minlength="8" required>
+          <div class="ayuda">Mínimo 8 caracteres. Mejor si mezclás letras y números.</div>
+        </div>
+        <div class="field">
+          <label for="clave-repetida">Repetir contraseña nueva</label>
+          <input type="password" id="clave-repetida" autocomplete="new-password" minlength="8" required>
+        </div>
+        <button type="submit" id="btn-guardar">Guardar contraseña</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("cuenta");
+
+const ses = sigmaSesion();
+const obligatorio = !!(ses && ses.debeCambiar);
+if(ses){
+  document.getElementById("dato-nombre").textContent = ses.nombre || "—";
+  document.getElementById("dato-usuario").textContent = ses.usuario;
+  document.getElementById("dato-rol").textContent = ses.rolNombre || ses.rol;
+}
+if(obligatorio) document.getElementById("aviso-obligatorio").style.display = "block";
+
+function mostrarError(msg){
+  const el = document.getElementById("error");
+  el.textContent = msg; el.style.display = msg ? "block" : "none";
+}
+
+document.getElementById("form-clave").addEventListener("submit", async e => {
+  e.preventDefault();
+  mostrarError("");
+  const actual = document.getElementById("clave-actual").value;
+  const nueva = document.getElementById("clave-nueva").value;
+  const repetida = document.getElementById("clave-repetida").value;
+  if(nueva !== repetida){ mostrarError("Las dos contraseñas nuevas no coinciden."); return; }
+  if(nueva.length < 8){ mostrarError("La contraseña nueva debe tener al menos 8 caracteres."); return; }
+
+  const btn = document.getElementById("btn-guardar");
+  btn.disabled = true; btn.textContent = "Guardando…";
+  try{
+    const nuevaSesion = await sigmaApi("cambiar_clave", {ClaveActual: actual, ClaveNueva: nueva});
+    sigmaGuardarSesion(nuevaSesion);   // el servidor entrega un token nuevo (el anterior deja de valer)
+    if(obligatorio){
+      location.replace(`${SIGMA_BASE_URL}dashboard.html`);
+      return;
+    }
+    sigmaToast("Contraseña actualizada.");
+    e.target.reset();
+  }catch(err){
+    mostrarError(err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Guardar contraseña";
+  }
+});
+</script>
+</body>
+</html>

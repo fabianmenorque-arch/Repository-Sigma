@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-09-28-v11-repuestos-criticos";
+const VERSION_SCRIPT = "2026-10-10-v12-usuarios-roles";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -56,63 +56,110 @@ const SHEETS = {
 
 /* ============================================================
    ENTRADA — doPost / doGet
+   ------------------------------------------------------------
+   Toda petición (salvo "login") exige un token de sesión válido.
+   El token se valida en el servidor en CADA llamada: firma, vencimiento,
+   usuario activo y sesión vigente. El rol sale de la hoja Usuarios,
+   nunca del navegador.
    ============================================================ */
 
 function doPost(e) {
-  return withLock_(() => {
-    try {
-      const body = JSON.parse(e.postData.contents);
-      const accion = body.action;
-      Logger.log("doPost recibido — action: " + accion + " | payload: " + JSON.stringify(body));
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const accion = body.action;
 
-      switch (accion) {
-        case "crear_equipo":
-          return ok_(crearEquipo_(body));
-        case "crear_orden":
-          return ok_(crearOrden_(body));
-        case "actualizar_orden":
-          return ok_(actualizarOrden_(body));
-        case "crear_mantenimiento":
-          return ok_(crearMantenimiento_(body));
-        case "registrar_medicion":
-          return ok_(registrarMedicion_(body));
-        case "subir_imagen":
-          return ok_(subirImagen_(body));
-        case "crear_tarea_gestion":
-          return ok_(crearTareaGestion_(body));
-        case "actualizar_tarea_gestion":
-          return ok_(actualizarTareaGestion_(body));
-        case "crear_avance":
-          return ok_(crearAvance_(body));
-        case "crear_analisis":
-          return ok_(crearAnalisis_(body));
-        case "crear_parada":
-          return ok_(crearParada_(body));
-        case "guardar_objetivo":
-          return ok_(guardarObjetivo_(body));
-        case "actualizar_criticidad":
-          return ok_(actualizarCriticidad_(body));
-        case "guardar_repuesto":
-          return ok_(guardarRepuesto_(body));
-        case "eliminar_repuesto":
-          return ok_(eliminarRepuesto_(body));
-        case "guardar_precio":
-          return ok_(guardarPrecio_(body));
-        default:
-          Logger.log("Acción desconocida: " + accion);
-          return error_("Acción desconocida: " + accion);
-      }
-    } catch (err) {
-      Logger.log("ERROR en doPost: " + err.message + " | stack: " + err.stack);
-      return error_(err.message);
-    }
-  });
+    // Login: sin sesión previa y sin lock (no escribe datos de negocio).
+    if (accion === "login") return ok_(login_(body));
+
+    const usuario = autenticar_(body.token);
+    delete body.token;
+    // OJO: nunca se registra el cuerpo completo (trae contraseñas e imágenes).
+    Logger.log("doPost — action: " + accion + " | usuario: " + usuario.Usuario + " (" + usuario.Rol + ")");
+
+    // Lecturas: sin lock, filtradas por rol.
+    if (accion === "leer") return ok_(leerTablas_(usuario, body));
+
+    // Escrituras y administración de usuarios: una a la vez (dos operarios simultáneos).
+    return withLock_(() => ok_(despachar_(usuario, accion, body)));
+  } catch (err) {
+    Logger.log("ERROR en doPost: " + err.message + " | stack: " + err.stack);
+    return error_(err.message, err.codigo);
+  }
 }
 
 function doGet(e) {
   return ContentService
-    .createTextOutput(JSON.stringify({ok: true, mensaje: "SIGMA Apps Script activo", version: VERSION_SCRIPT}))
+    .createTextOutput(JSON.stringify({ok: true, mensaje: "SIGMA Apps Script activo", version: VERSION_SCRIPT, autenticacion: true}))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Enruta una acción ya autenticada: cuenta propia, usuarios (admin) o escrituras de negocio. */
+function despachar_(usuario, accion, body) {
+  switch (accion) {
+    case "cambiar_clave":
+      return cambiarClave_(usuario, body);
+    case "listar_usuarios":
+      exigirAdmin_(usuario);
+      return listarUsuarios_();
+    case "crear_usuario":
+      exigirAdmin_(usuario);
+      return crearUsuario_(body);
+    case "actualizar_usuario":
+      exigirAdmin_(usuario);
+      return actualizarUsuario_(usuario, body);
+    case "resetear_clave":
+      exigirAdmin_(usuario);
+      return resetearClave_(body);
+  }
+
+  if (ACCIONES_ESCRITURA.indexOf(accion) === -1) throw new Error("Acción desconocida: " + accion);
+  if (PERMISOS[usuario.Rol].escribir.indexOf(accion) === -1) {
+    throw errorPermiso_("Tu rol (" + ROLES[usuario.Rol] + ") no permite realizar esta acción.");
+  }
+
+  sanitizarCuerpo_(body);
+  if (ACCIONES_CON_AUTOR.indexOf(accion) !== -1) body.Registrado_Por = usuario.Nombre || usuario.Usuario;
+  return ejecutarEscritura_(accion, body);
+}
+
+/** Escrituras de negocio (la lógica original de SIGMA, sin cambios). */
+function ejecutarEscritura_(accion, body) {
+  switch (accion) {
+    case "crear_equipo":
+      return crearEquipo_(body);
+    case "crear_orden":
+      return crearOrden_(body);
+    case "actualizar_orden":
+      return actualizarOrden_(body);
+    case "crear_mantenimiento":
+      return crearMantenimiento_(body);
+    case "registrar_medicion":
+      return registrarMedicion_(body);
+    case "subir_imagen":
+      return subirImagen_(body);
+    case "crear_tarea_gestion":
+      return crearTareaGestion_(body);
+    case "actualizar_tarea_gestion":
+      return actualizarTareaGestion_(body);
+    case "crear_avance":
+      return crearAvance_(body);
+    case "crear_analisis":
+      return crearAnalisis_(body);
+    case "crear_parada":
+      return crearParada_(body);
+    case "guardar_objetivo":
+      return guardarObjetivo_(body);
+    case "actualizar_criticidad":
+      return actualizarCriticidad_(body);
+    case "guardar_repuesto":
+      return guardarRepuesto_(body);
+    case "eliminar_repuesto":
+      return eliminarRepuesto_(body);
+    case "guardar_precio":
+      return guardarPrecio_(body);
+    default:
+      throw new Error("Acción desconocida: " + accion);
+  }
 }
 
 /* ============================================================
@@ -409,6 +456,493 @@ function carpetaImagenesSigma_() {
 }
 
 /* ============================================================
+   USUARIOS, ROLES Y SESIONES
+   ------------------------------------------------------------
+   Hoja "Usuarios" (se crea sola): Usuario | Nombre | Rol | Clave_Hash |
+   Salt | Activo | Debe_Cambiar | Sesion | Fecha_Creacion | Ultimo_Acceso
+   Las contraseñas NUNCA se guardan en claro: se guarda un hash con sal
+   y "pimienta" (secreto del script, guardado en Propiedades del script).
+
+   >>> PARA CAMBIAR QUÉ PUEDE HACER CADA ROL, EDITÁ SOLO "PERMISOS" <<<
+   ============================================================ */
+
+const HOJA_USUARIOS = "Usuarios";
+const COLUMNAS_USUARIOS = ["Usuario", "Nombre", "Rol", "Clave_Hash", "Salt", "Activo", "Debe_Cambiar", "Sesion", "Fecha_Creacion", "Ultimo_Acceso"];
+
+const DURACION_SESION_HORAS = 12;   // un turno; después hay que volver a ingresar
+const MAX_INTENTOS = 5;             // intentos fallidos antes de bloquear
+const BLOQUEO_SEGUNDOS = 600;       // 10 minutos
+const ITERACIONES_HASH = 1000;
+const CLAVE_MINIMA = 8;
+
+// Usuario del primer administrador (lo crea crearAdministradorInicial)
+const ADMIN_INICIAL_USUARIO = "fabian";
+const ADMIN_INICIAL_NOMBRE = "Fabian";
+
+const ROLES = {
+  admin: "Administrador",
+  jefe: "Jefe / Supervisor",
+  tecnico: "Técnico / Operario",
+  lectura: "Solo lectura"
+};
+
+// Pestañas de datos del sistema (la hoja "Usuarios" NO está en ninguna lista: nadie puede leerla desde la web)
+const PESTANAS_OPERATIVAS = ["Equipos", "Mantenimientos", "Ordenes_de_Trabajo", "Imagenes", "Variables",
+  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas"];
+const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios"]);
+
+const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
+  "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
+  "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
+  "eliminar_repuesto", "guardar_precio"];
+
+// Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
+const ACCIONES_CON_AUTOR = ["crear_equipo", "crear_orden", "crear_mantenimiento", "registrar_medicion",
+  "subir_imagen", "crear_tarea_gestion", "crear_avance", "crear_analisis", "crear_parada"];
+
+const PAGINAS_BASE = ["dashboard", "novedades", "equipos", "qr", "ordenes", "informes", "repuestos", "bombas"];
+
+const PERMISOS = {
+  admin: {
+    leer: PESTANAS_TODAS,
+    escribir: ACCIONES_ESCRITURA,
+    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion", "usuarios"])
+  },
+  jefe: {
+    leer: PESTANAS_TODAS,
+    escribir: ACCIONES_ESCRITURA,
+    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion"])
+  },
+  tecnico: {
+    leer: PESTANAS_OPERATIVAS,
+    escribir: ["crear_orden", "actualizar_orden", "registrar_medicion", "subir_imagen", "crear_avance"],
+    paginas: PAGINAS_BASE
+  },
+  lectura: {
+    leer: PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos"]),
+    escribir: [],
+    paginas: PAGINAS_BASE.concat(["analisis"])
+  }
+};
+
+/* ---------------- Errores ---------------- */
+
+function errorPermiso_(mensaje) {
+  const e = new Error(mensaje || "No tenés permiso para realizar esta acción.");
+  e.codigo = "PERMISO";
+  return e;
+}
+
+function errorSesion_(mensaje) {
+  const e = new Error(mensaje || "Tu sesión venció. Volvé a ingresar.");
+  e.codigo = "SESION";
+  return e;
+}
+
+function exigirAdmin_(usuario) {
+  if (usuario.Rol !== "admin") throw errorPermiso_("Solo un Administrador puede gestionar usuarios.");
+}
+
+/* ---------------- Criptografía ---------------- */
+
+/** Secreto del script (firma de tokens + pimienta de contraseñas). Se genera una vez. */
+function secreto_() {
+  const props = PropertiesService.getScriptProperties();
+  let s = props.getProperty("SIGMA_SECRETO");
+  if (!s) {
+    s = Utilities.getUuid() + Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty("SIGMA_SECRETO", s);
+  }
+  return s;
+}
+
+function firmar_(texto) {
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(texto, secreto_()));
+}
+
+function igualesSeguro_(a, b) {
+  a = String(a); b = String(b);
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+function hashClave_(clave, salt, iteraciones) {
+  const iter = iteraciones || ITERACIONES_HASH;
+  const llave = secreto_() + salt;
+  let h = salt + "|" + clave;
+  for (let i = 0; i < iter; i++) {
+    h = Utilities.base64Encode(Utilities.computeHmacSha256Signature(h, llave));
+  }
+  return "v1$" + iter + "$" + h;
+}
+
+function claveCorrecta_(clave, salt, hashGuardado) {
+  const partes = String(hashGuardado).split("$");
+  const iter = parseInt(partes[1], 10) || ITERACIONES_HASH;
+  return igualesSeguro_(hashClave_(clave, salt, iter), hashGuardado);
+}
+
+function validarClaveNueva_(clave) {
+  if (String(clave || "").length < CLAVE_MINIMA) {
+    throw new Error("La contraseña debe tener al menos " + CLAVE_MINIMA + " caracteres.");
+  }
+}
+
+/* ---------------- Tokens de sesión ---------------- */
+
+function emitirToken_(u) {
+  const carga = {u: u.Usuario, s: u.Sesion, e: Date.now() + DURACION_SESION_HORAS * 3600000};
+  const p = Utilities.base64EncodeWebSafe(JSON.stringify(carga), Utilities.Charset.UTF_8);
+  return p + "." + firmar_(p);
+}
+
+/** Valida el token y devuelve el usuario ACTUAL según la hoja (rol, estado y sesión vigentes). */
+function autenticar_(token) {
+  if (!token || typeof token !== "string" || token.indexOf(".") === -1) throw errorSesion_("Iniciá sesión para continuar.");
+  const partes = token.split(".");
+  if (partes.length !== 2 || !igualesSeguro_(firmar_(partes[0]), partes[1])) throw errorSesion_();
+
+  let carga;
+  try {
+    carga = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(partes[0])).getDataAsString("UTF-8"));
+  } catch (e) {
+    throw errorSesion_();
+  }
+  if (!carga || !carga.e || Date.now() > carga.e) throw errorSesion_();
+
+  const u = mapaUsuarios_()[carga.u];
+  if (!u || u.Activo !== "SI" || !carga.s || u.Sesion !== carga.s) throw errorSesion_();
+  return u;
+}
+
+/** Datos de sesión que recibe el navegador (los permisos salen de PERMISOS: única fuente de verdad). */
+function respuestaSesion_(u) {
+  const p = PERMISOS[u.Rol];
+  return {
+    token: emitirToken_(u),
+    usuario: u.Usuario,
+    nombre: u.Nombre,
+    rol: u.Rol,
+    rolNombre: ROLES[u.Rol],
+    debeCambiar: u.Debe_Cambiar === "SI",
+    expira: Date.now() + DURACION_SESION_HORAS * 3600000,
+    permisos: {leer: p.leer, escribir: p.escribir, paginas: p.paginas}
+  };
+}
+
+/* ---------------- Hoja de usuarios ---------------- */
+
+function hojaUsuarios_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let s = ss.getSheetByName(HOJA_USUARIOS);
+  if (!s) {
+    s = ss.insertSheet(HOJA_USUARIOS);
+    s.appendRow(COLUMNAS_USUARIOS);
+    // Todo como texto: evita que Sheets convierta fechas/hashes y deje valores inesperados.
+    s.getRange(1, 1, s.getMaxRows(), COLUMNAS_USUARIOS.length).setNumberFormat("@");
+    s.setFrozenRows(1);
+  } else {
+    COLUMNAS_USUARIOS.forEach(c => asegurarColumna_(s, c));
+  }
+  return s;
+}
+
+/** Todos los usuarios como objetos (con número de fila). Usa texto tal cual se ve en la hoja. */
+function usuariosDeHoja_() {
+  const s = hojaUsuarios_();
+  const ult = s.getLastRow();
+  if (ult < 2) return [];
+  const h = encabezados_(s).map(x => String(x).trim());
+  const vals = s.getRange(2, 1, ult - 1, h.length).getDisplayValues();
+  const salida = [];
+  vals.forEach((fila, i) => {
+    const o = {_fila: i + 2};
+    h.forEach((nombre, j) => o[nombre] = String(fila[j]).trim());
+    if (o.Usuario) salida.push(o);
+  });
+  return salida;
+}
+
+/** {usuario: datos} con caché corta (se invalida en cada cambio de usuarios). */
+function mapaUsuarios_() {
+  const cache = CacheService.getScriptCache();
+  const guardado = cache.get("SIGMA_USUARIOS");
+  if (guardado) return JSON.parse(guardado);
+  const mapa = {};
+  usuariosDeHoja_().forEach(u => {
+    mapa[u.Usuario] = {Usuario: u.Usuario, Nombre: u.Nombre, Rol: u.Rol, Activo: u.Activo, Debe_Cambiar: u.Debe_Cambiar, Sesion: u.Sesion};
+  });
+  cache.put("SIGMA_USUARIOS", JSON.stringify(mapa), 60);
+  return mapa;
+}
+
+function invalidarCacheUsuarios_() {
+  CacheService.getScriptCache().remove("SIGMA_USUARIOS");
+}
+
+function normalizarUsuario_(u) {
+  return String(u || "").trim().toLowerCase();
+}
+
+function buscarUsuario_(id) {
+  const lista = usuariosDeHoja_();
+  for (let i = 0; i < lista.length; i++) if (lista[i].Usuario === id) return lista[i];
+  return null;
+}
+
+function guardarCamposUsuario_(fila, campos) {
+  const s = hojaUsuarios_();
+  const h = encabezados_(s).map(x => String(x).trim());
+  Object.keys(campos).forEach(k => {
+    const c = h.indexOf(k);
+    if (c !== -1) s.getRange(fila, c + 1).setValue(campos[k]);
+  });
+  invalidarCacheUsuarios_();
+}
+
+function nuevaSesion_() {
+  return Utilities.getUuid();
+}
+
+function ahoraISO_() {
+  return new Date().toISOString();
+}
+
+/* ---------------- Login ---------------- */
+
+function login_(body) {
+  const id = normalizarUsuario_(body.Usuario);
+  const clave = String(body.Clave || "");
+  if (!id || !clave) throw new Error("Ingresá tu usuario y tu contraseña.");
+
+  const cache = CacheService.getScriptCache();
+  const kFallos = "SIGMA_FALLOS_" + id;
+  const fallos = parseInt(cache.get(kFallos) || "0", 10);
+  if (fallos >= MAX_INTENTOS) {
+    throw new Error("Demasiados intentos fallidos. Esperá 10 minutos y volvé a intentar.");
+  }
+
+  const u = buscarUsuario_(id);
+  // Si el usuario no existe se calcula igual un hash, para no delatar qué usuarios existen por el tiempo de respuesta.
+  const correcta = u ? claveCorrecta_(clave, u.Salt, u.Clave_Hash) : (hashClave_(clave, "sin-usuario"), false);
+  if (!correcta) {
+    cache.put(kFallos, String(fallos + 1), BLOQUEO_SEGUNDOS);
+    throw new Error("Usuario o contraseña incorrectos.");
+  }
+  if (u.Activo !== "SI") throw new Error("Tu usuario está desactivado. Consultá con el Administrador.");
+  if (!ROLES[u.Rol]) throw new Error("Tu usuario no tiene un rol válido. Consultá con el Administrador.");
+
+  cache.remove(kFallos);
+  guardarCamposUsuario_(u._fila, {Ultimo_Acceso: ahoraISO_()});
+  return respuestaSesion_(u);
+}
+
+/* ---------------- Cuenta propia ---------------- */
+
+function cambiarClave_(usuarioSesion, body) {
+  const u = buscarUsuario_(usuarioSesion.Usuario);
+  if (!u) throw errorSesion_();
+
+  const cache = CacheService.getScriptCache();
+  const kFallos = "SIGMA_FALLOS_" + u.Usuario;
+  const fallos = parseInt(cache.get(kFallos) || "0", 10);
+  if (fallos >= MAX_INTENTOS) throw new Error("Demasiados intentos fallidos. Esperá 10 minutos y volvé a intentar.");
+
+  if (!claveCorrecta_(String(body.ClaveActual || ""), u.Salt, u.Clave_Hash)) {
+    cache.put(kFallos, String(fallos + 1), BLOQUEO_SEGUNDOS);
+    throw new Error("La contraseña actual no es correcta.");
+  }
+  validarClaveNueva_(body.ClaveNueva);
+  if (String(body.ClaveNueva) === String(body.ClaveActual)) throw new Error("La contraseña nueva tiene que ser distinta de la actual.");
+
+  const salt = Utilities.getUuid();
+  const sesion = nuevaSesion_();   // cierra las demás sesiones abiertas con la clave vieja
+  guardarCamposUsuario_(u._fila, {Salt: salt, Clave_Hash: hashClave_(String(body.ClaveNueva), salt), Debe_Cambiar: "NO", Sesion: sesion});
+  cache.remove(kFallos);
+  return respuestaSesion_({Usuario: u.Usuario, Nombre: u.Nombre, Rol: u.Rol, Debe_Cambiar: "NO", Sesion: sesion});
+}
+
+/* ---------------- Administración de usuarios (solo Administrador) ---------------- */
+
+function listarUsuarios_() {
+  const roles = {};
+  Object.keys(ROLES).forEach(r => {
+    roles[r] = {nombre: ROLES[r], leer: PERMISOS[r].leer, escribir: PERMISOS[r].escribir, paginas: PERMISOS[r].paginas};
+  });
+  return {
+    usuarios: usuariosDeHoja_().map(u => ({
+      Usuario: u.Usuario, Nombre: u.Nombre, Rol: u.Rol, Activo: u.Activo === "SI",
+      Debe_Cambiar: u.Debe_Cambiar === "SI", Fecha_Creacion: u.Fecha_Creacion, Ultimo_Acceso: u.Ultimo_Acceso
+    })),
+    roles: roles
+  };
+}
+
+function crearUsuario_(body) {
+  const id = normalizarUsuario_(body.Usuario);
+  if (!/^[a-z0-9._-]{3,30}$/.test(id)) {
+    throw new Error("El usuario debe tener entre 3 y 30 caracteres: letras sin tildes, números, punto, guion o guion bajo.");
+  }
+  const nombre = String(body.Nombre || "").trim();
+  if (!nombre || nombre.length > 80) throw new Error("Ingresá el nombre completo (hasta 80 caracteres).");
+  if (!ROLES[body.Rol]) throw new Error("Elegí un rol válido.");
+  validarClaveNueva_(body.Clave);
+  if (buscarUsuario_(id)) throw new Error("Ya existe un usuario '" + id + "'.");
+
+  const salt = Utilities.getUuid();
+  const s = hojaUsuarios_();
+  agregarFilaPorEncabezados_(s, {
+    Usuario: id, Nombre: nombre.replace(/[<>]/g, ""), Rol: body.Rol,
+    Clave_Hash: hashClave_(String(body.Clave), salt), Salt: salt,
+    Activo: "SI", Debe_Cambiar: "SI", Sesion: nuevaSesion_(),
+    Fecha_Creacion: ahoraISO_(), Ultimo_Acceso: ""
+  });
+  invalidarCacheUsuarios_();
+  return {accion: "crear_usuario", Usuario: id};
+}
+
+function administradoresActivos_() {
+  return usuariosDeHoja_().filter(u => u.Rol === "admin" && u.Activo === "SI");
+}
+
+function actualizarUsuario_(actor, body) {
+  const id = normalizarUsuario_(body.Usuario);
+  const u = buscarUsuario_(id);
+  if (!u) throw new Error("No existe el usuario '" + id + "'.");
+
+  const cambios = {};
+  let cierraSesion = false;
+
+  if (body.Nombre !== undefined) {
+    const n = String(body.Nombre).trim().replace(/[<>]/g, "");
+    if (!n || n.length > 80) throw new Error("Ingresá el nombre completo (hasta 80 caracteres).");
+    cambios.Nombre = n;
+  }
+  if (body.Rol !== undefined && body.Rol !== u.Rol) {
+    if (!ROLES[body.Rol]) throw new Error("Elegí un rol válido.");
+    cambios.Rol = body.Rol;
+    cierraSesion = true;
+  }
+  if (body.Activo !== undefined) {
+    const nuevoActivo = body.Activo ? "SI" : "NO";
+    if (nuevoActivo !== u.Activo) { cambios.Activo = nuevoActivo; cierraSesion = true; }
+  }
+
+  // Protecciones: no quedarse sin administradores ni auto-degradarse.
+  const dejaDeSerAdminActivo = u.Rol === "admin" && u.Activo === "SI" &&
+    ((cambios.Rol && cambios.Rol !== "admin") || cambios.Activo === "NO");
+  if (dejaDeSerAdminActivo) {
+    if (u.Usuario === actor.Usuario) throw new Error("No podés quitarte a vos mismo el rol de Administrador ni desactivarte.");
+    if (administradoresActivos_().length <= 1) throw new Error("Tiene que quedar al menos un Administrador activo.");
+  }
+  if (u.Usuario === actor.Usuario && cambios.Activo === "NO") throw new Error("No podés desactivarte a vos mismo.");
+
+  if (cierraSesion) cambios.Sesion = nuevaSesion_();   // las sesiones abiertas dejan de valer al instante
+  if (!Object.keys(cambios).length) return {accion: "actualizar_usuario", Usuario: id, sinCambios: true};
+  guardarCamposUsuario_(u._fila, cambios);
+  return {accion: "actualizar_usuario", Usuario: id};
+}
+
+function resetearClave_(body) {
+  const id = normalizarUsuario_(body.Usuario);
+  const u = buscarUsuario_(id);
+  if (!u) throw new Error("No existe el usuario '" + id + "'.");
+  validarClaveNueva_(body.Clave);
+  const salt = Utilities.getUuid();
+  guardarCamposUsuario_(u._fila, {Salt: salt, Clave_Hash: hashClave_(String(body.Clave), salt), Debe_Cambiar: "SI", Sesion: nuevaSesion_()});
+  CacheService.getScriptCache().remove("SIGMA_FALLOS_" + id);
+  return {accion: "resetear_clave", Usuario: id};
+}
+
+/* ---------------- Lectura de datos filtrada por rol ---------------- */
+
+/** Reemplaza al CSV público: devuelve las pestañas pedidas que el rol puede ver. */
+function leerTablas_(usuario, body) {
+  const nombres = Array.isArray(body.tablas) ? body.tablas : [body.tabla];
+  const permitidas = PERMISOS[usuario.Rol].leer;
+  const salida = {};
+  nombres.slice(0, 20).forEach(n => {
+    try {
+      if (permitidas.indexOf(n) === -1) throw errorPermiso_("Tu rol no tiene acceso a '" + n + "'.");
+      salida[n] = {ok: true, filas: filasDeHoja_(n)};
+    } catch (err) {
+      salida[n] = {ok: false, error: err.message, codigo: err.codigo || ""};
+    }
+  });
+  return salida;
+}
+
+/** Filas de una pestaña como objetos {columna: texto}, igual que el viejo parser de CSV. */
+function filasDeHoja_(nombre) {
+  const sheet = hoja_(nombre);
+  if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) return [];
+  const vals = sheet.getDataRange().getDisplayValues();
+  const h = vals.shift().map(x => String(x).trim());
+  const filas = [];
+  vals.forEach(r => {
+    if (!r.some(v => String(v) !== "")) return;
+    const o = {};
+    h.forEach((nombreCol, j) => { if (nombreCol) o[nombreCol] = String(r[j] === undefined ? "" : r[j]).trim(); });
+    filas.push(o);
+  });
+  return filas;
+}
+
+/** Evita HTML inyectado en los datos (un usuario de menor rol no debe poder atacar a un Administrador). */
+function sanitizarCuerpo_(obj) {
+  Object.keys(obj).forEach(k => {
+    const v = obj[k];
+    if (typeof v === "string") {
+      if (k !== "DatosBase64") obj[k] = v.replace(/</g, "＜").replace(/>/g, "＞");
+    } else if (Array.isArray(v)) {
+      v.forEach(it => { if (it && typeof it === "object") sanitizarCuerpo_(it); });
+    } else if (v && typeof v === "object") {
+      sanitizarCuerpo_(v);
+    }
+  });
+}
+
+/* ---------------- Puesta en marcha (se corren a mano desde el editor) ---------------- */
+
+function claveTemporalAleatoria_() {
+  return Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+}
+
+/**
+ * Corré esta función UNA VEZ desde el editor (▶ Ejecutar). Crea la hoja
+ * "Usuarios" y el primer Administrador con una contraseña temporal que
+ * aparece en Ver → Registros. Al primer ingreso el sistema te obliga a
+ * cambiarla. Si ya hay usuarios, no hace nada.
+ */
+function crearAdministradorInicial() {
+  hojaUsuarios_();
+  if (usuariosDeHoja_().length) {
+    Logger.log("Ya existen usuarios en la hoja 'Usuarios'. No se creó nada. Si olvidaste la clave del administrador, corré resetearClaveAdministrador().");
+    return;
+  }
+  const clave = claveTemporalAleatoria_();
+  crearUsuario_({Usuario: ADMIN_INICIAL_USUARIO, Nombre: ADMIN_INICIAL_NOMBRE, Rol: "admin", Clave: clave});
+  Logger.log("ADMINISTRADOR CREADO\nUsuario: " + ADMIN_INICIAL_USUARIO + "\nClave temporal: " + clave + "\n(el sistema te pedirá cambiarla al ingresar)");
+}
+
+/**
+ * Rescate: si te quedás sin acceso de Administrador, corré esta función desde
+ * el editor. Genera una clave temporal nueva para ADMIN_INICIAL_USUARIO y
+ * lo reactiva. Solo se puede correr desde el editor de Apps Script.
+ */
+function resetearClaveAdministrador() {
+  const u = buscarUsuario_(ADMIN_INICIAL_USUARIO);
+  if (!u) { Logger.log("No existe el usuario '" + ADMIN_INICIAL_USUARIO + "'. Corré crearAdministradorInicial()."); return; }
+  const clave = claveTemporalAleatoria_();
+  const salt = Utilities.getUuid();
+  guardarCamposUsuario_(u._fila, {Salt: salt, Clave_Hash: hashClave_(clave, salt), Debe_Cambiar: "SI", Sesion: nuevaSesion_(), Activo: "SI", Rol: "admin"});
+  CacheService.getScriptCache().remove("SIGMA_FALLOS_" + ADMIN_INICIAL_USUARIO);
+  Logger.log("CLAVE RESTABLECIDA\nUsuario: " + ADMIN_INICIAL_USUARIO + "\nClave temporal: " + clave);
+}
+
+/* ============================================================
    HELPERS DE HOJA
    ============================================================ */
 
@@ -517,9 +1051,9 @@ function ok_(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function error_(mensaje) {
+function error_(mensaje, codigo) {
   return ContentService
-    .createTextOutput(JSON.stringify({ok: false, error: mensaje}))
+    .createTextOutput(JSON.stringify({ok: false, error: mensaje, codigo: codigo || ""}))
     .setMimeType(ContentService.MimeType.JSON);
 }
 

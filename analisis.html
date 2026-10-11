@@ -71,7 +71,7 @@
   <!-- ===================== LABORATORIO ===================== -->
   <div class="tab-pane activo" id="tab-laboratorio">
 
-    <div class="plate panel">
+    <div class="plate panel" data-requiere="crear_analisis">
       <div class="panel-head"><h2>Cargar parte diario (PDF)</h2></div>
       <p style="font-size:.8rem;color:var(--steel-400);margin:0 0 1rem;">
         Subí las hojas del parte diario de fábrica. Los datos se leen directo
@@ -105,7 +105,7 @@
       </div>
     </div>
 
-    <div class="plate panel">
+    <div class="plate panel" data-requiere="crear_analisis">
       <div class="panel-head"><h2>Revisar y guardar</h2></div>
       <div id="bloque-revision" style="display:none;">
         <div class="field" style="max-width:220px;">
@@ -124,7 +124,7 @@
       </div>
     </div>
 
-    <div class="plate panel">
+    <div class="plate panel" data-requiere="guardar_objetivo">
       <div class="panel-head"><h2>Objetivos del mes</h2></div>
       <p style="font-size:.8rem;color:var(--steel-400);margin:0 0 1rem;">
         Definí las metas del mes para comparar contra lo real en el Panel de control.
@@ -153,7 +153,7 @@
   <!-- ===================== PARADAS ===================== -->
   <div class="tab-pane" id="tab-paradas">
 
-    <div class="plate panel">
+    <div class="plate panel" data-requiere="crear_parada">
       <div class="panel-head"><h2>Cargar informe de paradas (Excel)</h2></div>
       <p style="font-size:.8rem;color:var(--steel-400);margin:0 0 1rem;">
         Subí el informe de paradas del ingenio (.xlsx). Se combinan automáticamente
@@ -223,7 +223,7 @@
 
         <div class="acciones-paradas">
           <button id="btn-exportar-paradas" class="secundario">Exportar a Excel</button>
-          <button id="btn-guardar-paradas">Guardar en el sistema</button>
+          <button id="btn-guardar-paradas" data-requiere="crear_parada">Guardar en el sistema</button>
         </div>
       </div>
 

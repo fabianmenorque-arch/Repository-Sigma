@@ -151,7 +151,7 @@
   <div class="panel-head">
   <h1>Informe de mantenimiento</h1>
   <div class="no-print" style="display:flex;gap:.5rem;">
-    <button class="secondary" id="btn-editar-orden">✏️ Editar orden</button>
+    <button class="secondary" id="btn-editar-orden" data-requiere="actualizar_orden">✏️ Editar orden</button>
     <button id="btn-imprimir">Imprimir / Guardar como PDF</button>
   </div>
 </div>
@@ -188,7 +188,7 @@
       </div>
 
       <!-- Edición de la orden -->
-      <form id="form-editar-orden" class="no-print" style="display:none;margin-top:1.2rem;border-top:1px solid var(--line);padding-top:1rem;">
+      <form id="form-editar-orden" data-requiere="actualizar_orden" class="no-print" style="display:none;margin-top:1.2rem;border-top:1px solid var(--line);padding-top:1rem;">
         <div class="field buscador-wrap">
           <label for="edit-buscar-equipo">Equipo</label>
           <input type="text" id="edit-buscar-equipo" placeholder="Buscar por código, sector o máquina…" autocomplete="off" required>
@@ -249,7 +249,7 @@
       </p>
       <div id="lista-avances"><div class="empty-state">Sin avances cargados todavía.</div></div>
 
-      <form id="form-avance" class="no-print" style="margin-top:1rem;border-top:1px solid var(--line);padding-top:1rem;">
+      <form id="form-avance" data-requiere="crear_avance" class="no-print" style="margin-top:1rem;border-top:1px solid var(--line);padding-top:1rem;">
         <h3 style="margin-bottom:.7rem;">Registrar avance</h3>
         <div class="field">
           <label for="avance-responsable">Responsable de este tramo</label>
@@ -292,7 +292,7 @@
         <button type="submit" id="btn-avance" style="margin-top:1rem;">Guardar avance</button>
       </form>
 
-      <div class="no-print" id="wrap-finalizar" style="margin-top:1.2rem;border-top:1px solid var(--line);padding-top:1rem;text-align:right;">
+      <div class="no-print" id="wrap-finalizar" data-requiere="actualizar_orden" style="margin-top:1.2rem;border-top:1px solid var(--line);padding-top:1rem;text-align:right;">
         <button id="btn-finalizar" style="background:var(--ok-500);border-color:var(--ok-500);">✓ Finalizar orden</button>
       </div>
     </div>
@@ -303,7 +303,7 @@
       <div class="foto-columnas">
         <div>
           <h3>Antes</h3>
-          <label class="btn secondary upload-btn no-print">
+          <label class="btn secondary upload-btn no-print" data-requiere="subir_imagen">
             + Subir foto
             <input type="file" accept="image/*" capture="environment" id="foto-antes">
           </label>
@@ -311,7 +311,7 @@
         </div>
         <div>
           <h3>Después</h3>
-          <label class="btn secondary upload-btn no-print">
+          <label class="btn secondary upload-btn no-print" data-requiere="subir_imagen">
             + Subir foto
             <input type="file" accept="image/*" capture="environment" id="foto-despues">
           </label>
@@ -321,14 +321,14 @@
     </div>
 
     <!-- Tareas de gestión -->
-    <div class="plate panel">
+    <div class="plate panel" data-requiere-leer="Gestion_Tareas">
       <div class="panel-head"><h2>Tareas de gestión</h2></div>
       <p class="no-print" style="font-size:.78rem;color:var(--steel-400);margin:0 0 1rem;">
         Para seguimiento administrativo alrededor de esta reparación —
         pedir cotización, comprar equipo nuevo, solicitar repuestos,
         consultar estado de una reparación externa, etc.
       </p>
-      <form id="form-tarea-gestion">
+      <form id="form-tarea-gestion" data-requiere="crear_tarea_gestion">
         <div class="field-row">
           <div class="field">
             <label for="tarea-tipo">Tipo</label>

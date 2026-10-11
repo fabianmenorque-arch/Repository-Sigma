@@ -37,7 +37,7 @@
 
   <div class="grid-2">
     <!-- Formulario de alta -->
-    <div class="plate panel">
+    <div class="plate panel" data-requiere="crear_orden">
       <div class="panel-head"><h2>Nueva orden</h2></div>
       <form id="form-orden">
         <div class="field buscador-wrap">
@@ -320,19 +320,19 @@ function pintarTablaOrdenes(lista){
       <td>${o.Tipo}</td>
       <td>${sigmaBadge("prioridad", o.Prioridad)}</td>
       <td>
-        <select class="select-estado estado-${claseEstado(o.Estado)}" onchange="cambiarEstado('${o.Nro_Orden}', this.value); this.className='select-estado estado-'+this.value.toLowerCase().replace(/\\s+/g,'-');">
+        <select data-requiere-bloquear="actualizar_orden" class="select-estado estado-${claseEstado(o.Estado)}" onchange="cambiarEstado('${o.Nro_Orden}', this.value); this.className='select-estado estado-'+this.value.toLowerCase().replace(/\\s+/g,'-');">
           ${ESTADOS.map(s => `<option value="${s}" ${s===o.Estado?"selected":""}>${s}</option>`).join("")}
         </select>
       </td>
       <td>${o.Responsable||"—"}</td>
       <td>${fmtFechaHora(o.Fecha_Creacion)}</td>
       <td>
-        <input type="date" value="${partesFechaHora(o.Fecha_Inicio).fecha}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Inicio', this.closest('td'))" style="margin-bottom:.25rem;padding:.25rem .35rem;font-size:.75rem;">
-        <input type="time" value="${partesFechaHora(o.Fecha_Inicio).hora}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Inicio', this.closest('td'))" style="padding:.25rem .35rem;font-size:.75rem;">
+        <input data-requiere-bloquear="actualizar_orden" type="date" value="${partesFechaHora(o.Fecha_Inicio).fecha}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Inicio', this.closest('td'))" style="margin-bottom:.25rem;padding:.25rem .35rem;font-size:.75rem;">
+        <input data-requiere-bloquear="actualizar_orden" type="time" value="${partesFechaHora(o.Fecha_Inicio).hora}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Inicio', this.closest('td'))" style="padding:.25rem .35rem;font-size:.75rem;">
       </td>
       <td>
-        <input type="date" value="${partesFechaHora(o.Fecha_Cierre_Real).fecha}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Cierre_Real', this.closest('td'))" style="margin-bottom:.25rem;padding:.25rem .35rem;font-size:.75rem;">
-        <input type="time" value="${partesFechaHora(o.Fecha_Cierre_Real).hora}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Cierre_Real', this.closest('td'))" style="padding:.25rem .35rem;font-size:.75rem;">
+        <input data-requiere-bloquear="actualizar_orden" type="date" value="${partesFechaHora(o.Fecha_Cierre_Real).fecha}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Cierre_Real', this.closest('td'))" style="margin-bottom:.25rem;padding:.25rem .35rem;font-size:.75rem;">
+        <input data-requiere-bloquear="actualizar_orden" type="time" value="${partesFechaHora(o.Fecha_Cierre_Real).hora}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Cierre_Real', this.closest('td'))" style="padding:.25rem .35rem;font-size:.75rem;">
       </td>
     </tr>`;
   }).join("");

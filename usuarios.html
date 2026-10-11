@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Usuarios | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="sigma-utils.js"></script>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head"><h1>Usuarios y accesos</h1></div>
+
+  <div class="grid-2">
+    <div class="plate panel">
+      <div class="panel-head"><h2>Usuarios</h2><span class="status-line" id="resumen-usuarios"></span></div>
+      <div class="table-scroll" style="max-height:560px;">
+        <table class="sigma-table" id="tabla-usuarios">
+          <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th></th></tr></thead>
+          <tbody><tr><td colspan="5" class="empty-state">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Nuevo usuario</h2></div>
+      <div id="error-alta" class="msg-error" style="display:none;"></div>
+      <form id="form-alta" autocomplete="off">
+        <div class="field">
+          <label for="alta-nombre">Nombre completo</label>
+          <input type="text" id="alta-nombre" maxlength="80" required>
+        </div>
+        <div class="field">
+          <label for="alta-usuario">Usuario</label>
+          <input type="text" id="alta-usuario" maxlength="30" autocapitalize="none" spellcheck="false" placeholder="ej: jperez" required>
+          <div class="ayuda">3 a 30 caracteres: letras sin tildes, números, punto, guion o guion bajo.</div>
+        </div>
+        <div class="field">
+          <label for="alta-rol">Rol</label>
+          <select id="alta-rol" required></select>
+        </div>
+        <div class="field">
+          <label for="alta-clave">Contraseña temporal</label>
+          <div style="display:flex;gap:.5rem;">
+            <input type="text" id="alta-clave" minlength="8" autocomplete="off" required>
+            <button type="button" class="secondary" id="btn-generar" style="white-space:nowrap;">Generar</button>
+          </div>
+          <div class="ayuda">La persona tendrá que cambiarla la primera vez que ingrese.</div>
+        </div>
+        <button type="submit" id="btn-crear">Crear usuario</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Qué puede hacer cada rol</h2></div>
+    <div class="table-scroll" style="max-height:none;">
+      <table class="sigma-table matriz" id="tabla-matriz"></table>
+    </div>
+    <p class="ayuda">Esta tabla se arma con los permisos reales del servidor. Para cambiarlos, se edita <code>PERMISOS</code> en <code>Code.gs</code>.</p>
+  </div>
+</div>
+
+<dialog class="sigma-dialog" id="dlg-clave">
+  <h2 id="dlg-titulo">Contraseña temporal</h2>
+  <p id="dlg-texto" style="font-size:.85rem;color:var(--steel-400);"></p>
+  <div id="dlg-input-wrap" class="field" style="display:none;">
+    <label for="dlg-input">Contraseña temporal nueva</label>
+    <div style="display:flex;gap:.5rem;">
+      <input type="text" id="dlg-input" autocomplete="off">
+      <button type="button" class="secondary" id="dlg-generar">Generar</button>
+    </div>
+  </div>
+  <div id="dlg-clave-mostrada" class="clave-mostrada" style="display:none;"></div>
+  <div class="acciones">
+    <button type="button" class="secondary" id="dlg-cancelar">Cancelar</button>
+    <button type="button" id="dlg-ok">Aceptar</button>
+  </div>
+</dialog>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("usuarios");
+
+const YO = sigmaSesion();
+let usuarios = [], roles = {};
+
+// Textos amigables para la tabla de permisos (qué acciones del servidor agrupa cada fila)
+const FILAS_ACCIONES = [
+  ["Crear órdenes de trabajo", ["crear_orden"]],
+  ["Modificar órdenes (estado, fechas)", ["actualizar_orden"]],
+  ["Registrar mediciones", ["registrar_medicion"]],
+  ["Subir fotos y cargar avances de reparación", ["subir_imagen","crear_avance"]],
+  ["Dar de alta equipos", ["crear_equipo"]],
+  ["Tareas de gestión (cotizaciones, compras…)", ["crear_tarea_gestion","actualizar_tarea_gestion"]],
+  ["Cargar análisis, paradas y objetivos", ["crear_analisis","crear_parada","guardar_objetivo"]],
+  ["Editar repuestos y criticidad", ["actualizar_criticidad","guardar_repuesto","eliminar_repuesto"]],
+  ["Editar costos de repuestos", ["guardar_precio"]]
+];
+const FILAS_PAGINAS = [
+  ["Dashboard, Novedades, Equipos, Órdenes, Informes, Repuestos", "dashboard"],
+  ["Análisis (parte diario, paradas, laboratorio)", "analisis"],
+  ["Alta de equipo", "alta"],
+  ["Gestión", "gestion"],
+  ["Usuarios y accesos", "usuarios"]
+];
+const FILAS_DATOS = [
+  ["Ver costos de repuestos", "Precios"],
+  ["Ver tareas de gestión", "Gestion_Tareas"],
+  ["Ver análisis y objetivos", "Analisis_Sector"]
+];
+
+function sigmaClaveAleatoria(n = 10){
+  const alfabeto = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint32Array(n);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => alfabeto[b % alfabeto.length]).join("");
+}
+
+function msg(id, texto){
+  const el = document.getElementById(id);
+  el.textContent = texto; el.style.display = texto ? "block" : "none";
+}
+
+/* ---------- Diálogo reutilizable ---------- */
+function dialogo({titulo, texto, pedirClave = false, mostrarClave = "", okTexto = "Aceptar", soloOk = false}){
+  return new Promise(resolve => {
+    const dlg = document.getElementById("dlg-clave");
+    document.getElementById("dlg-titulo").textContent = titulo;
+    document.getElementById("dlg-texto").textContent = texto || "";
+    const wrap = document.getElementById("dlg-input-wrap");
+    const input = document.getElementById("dlg-input");
+    const mostrada = document.getElementById("dlg-clave-mostrada");
+    wrap.style.display = pedirClave ? "block" : "none";
+    mostrada.style.display = mostrarClave ? "block" : "none";
+    mostrada.textContent = mostrarClave;
+    if(pedirClave) input.value = sigmaClaveAleatoria();
+    document.getElementById("dlg-ok").textContent = okTexto;
+    document.getElementById("dlg-cancelar").style.display = soloOk ? "none" : "";
+    const fin = valor => { dlg.close(); limpiar(); resolve(valor); };
+    const ok = () => fin(pedirClave ? input.value : true);
+    const cancelar = () => fin(null);
+    const generar = () => { input.value = sigmaClaveAleatoria(); };
+    const limpiar = () => {
+      document.getElementById("dlg-ok").removeEventListener("click", ok);
+      document.getElementById("dlg-cancelar").removeEventListener("click", cancelar);
+      document.getElementById("dlg-generar").removeEventListener("click", generar);
+      dlg.removeEventListener("cancel", cancelar);
+    };
+    document.getElementById("dlg-ok").addEventListener("click", ok);
+    document.getElementById("dlg-cancelar").addEventListener("click", cancelar);
+    document.getElementById("dlg-generar").addEventListener("click", generar);
+    dlg.addEventListener("cancel", cancelar);
+    dlg.showModal();
+  });
+}
+
+/* ---------- Carga y pintado ---------- */
+async function cargar(){
+  try{
+    const data = await sigmaApi("listar_usuarios");
+    usuarios = data.usuarios; roles = data.roles;
+    pintarUsuarios(); pintarFormulario(); pintarMatriz();
+  }catch(err){
+    document.querySelector("#tabla-usuarios tbody").innerHTML =
+      `<tr><td colspan="5" class="empty-state">No se pudo cargar: ${sigmaEsc(err.message)}</td></tr>`;
+  }
+}
+
+function pintarFormulario(){
+  const sel = document.getElementById("alta-rol");
+  if(sel.options.length) return;
+  sel.innerHTML = Object.keys(roles).map(r => `<option value="${sigmaEsc(r)}">${sigmaEsc(roles[r].nombre)}</option>`).join("");
+  sel.value = "tecnico";
+  document.getElementById("alta-clave").value = sigmaClaveAleatoria();
+}
+
+function pintarUsuarios(){
+  const activos = usuarios.filter(u => u.Activo).length;
+  document.getElementById("resumen-usuarios").textContent = `${activos} activos de ${usuarios.length}`;
+  const tbody = document.querySelector("#tabla-usuarios tbody");
+  if(!usuarios.length){ tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Sin usuarios.</td></tr>`; return; }
+  tbody.innerHTML = usuarios.map(u => {
+    const yo = YO && u.Usuario === YO.usuario;
+    const opciones = Object.keys(roles).map(r => `<option value="${sigmaEsc(r)}" ${r===u.Rol?"selected":""}>${sigmaEsc(roles[r].nombre)}</option>`).join("");
+    return `<tr>
+      <td><div style="font-weight:600;">${sigmaEsc(u.Nombre)}${yo ? ' <span class="badge badge-rol-lectura">vos</span>' : ""}</div>
+          <span class="mono" style="font-size:.72rem;color:var(--steel-400);">${sigmaEsc(u.Usuario)}</span></td>
+      <td><select data-usuario="${sigmaEsc(u.Usuario)}" class="sel-rol" ${yo ? "disabled title='No podés cambiar tu propio rol'" : ""} style="min-width:185px;">${opciones}</select></td>
+      <td><span class="badge ${u.Activo ? "badge-activo" : "badge-inactivo"}">${u.Activo ? "Activo" : "Desactivado"}</span>
+          ${u.Debe_Cambiar ? '<div class="ayuda">Clave temporal pendiente</div>' : ""}</td>
+      <td>${u.Ultimo_Acceso ? sigmaFmtFechaHora(u.Ultimo_Acceso) : "Nunca"}</td>
+      <td style="white-space:nowrap;">
+        <button class="secondary btn-clave" data-usuario="${sigmaEsc(u.Usuario)}" style="padding:.35rem .6rem;font-size:.74rem;">Restablecer clave</button>
+        ${yo ? "" : `<button class="secondary btn-estado" data-usuario="${sigmaEsc(u.Usuario)}" data-activar="${u.Activo ? "0" : "1"}" style="padding:.35rem .6rem;font-size:.74rem;">${u.Activo ? "Desactivar" : "Activar"}</button>`}
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function pintarMatriz(){
+  const cols = Object.keys(roles);
+  const celda = ok => `<td class="${ok ? "si" : "no"}">${ok ? "✔" : "—"}</td>`;
+  const cab = `<thead><tr><th>Permiso</th>${cols.map(r => `<th class="centro">${sigmaEsc(roles[r].nombre)}</th>`).join("")}</tr></thead>`;
+  const seccion = t => `<tr><td colspan="${cols.length + 1}" style="background:var(--steel-800);font-weight:700;color:var(--amber-400);">${t}</td></tr>`;
+  const filas =
+    seccion("Pantallas que puede abrir") +
+    FILAS_PAGINAS.map(([t, pag]) => `<tr><td>${t}</td>${cols.map(r => celda(roles[r].paginas.includes(pag))).join("")}</tr>`).join("") +
+    seccion("Datos que puede ver") +
+    FILAS_DATOS.map(([t, tab]) => `<tr><td>${t}</td>${cols.map(r => celda(roles[r].leer.includes(tab))).join("")}</tr>`).join("") +
+    seccion("Qué puede cargar o modificar") +
+    FILAS_ACCIONES.map(([t, acc]) => `<tr><td>${t}</td>${cols.map(r => celda(acc.some(a => roles[r].escribir.includes(a)))).join("")}</tr>`).join("");
+  document.getElementById("tabla-matriz").innerHTML = cab + `<tbody>${filas}</tbody>`;
+}
+
+/* ---------- Acciones ---------- */
+document.getElementById("btn-generar").addEventListener("click", () => {
+  document.getElementById("alta-clave").value = sigmaClaveAleatoria();
+});
+
+document.getElementById("form-alta").addEventListener("submit", async e => {
+  e.preventDefault();
+  msg("error-alta", "");
+  const btn = document.getElementById("btn-crear");
+  const datos = {
+    Nombre: document.getElementById("alta-nombre").value.trim(),
+    Usuario: document.getElementById("alta-usuario").value.trim().toLowerCase(),
+    Rol: document.getElementById("alta-rol").value,
+    Clave: document.getElementById("alta-clave").value
+  };
+  btn.disabled = true; btn.textContent = "Creando…";
+  try{
+    await sigmaApi("crear_usuario", datos);
+    await dialogo({
+      titulo: "Usuario creado",
+      texto: `Pasale estos datos a ${datos.Nombre}. Usuario: ${datos.Usuario}. Tiene que cambiar la contraseña al ingresar por primera vez. Esta contraseña no se vuelve a mostrar:`,
+      mostrarClave: datos.Clave, okTexto: "Listo", soloOk: true
+    });
+    e.target.reset();
+    document.getElementById("alta-rol").value = "tecnico";
+    document.getElementById("alta-clave").value = sigmaClaveAleatoria();
+    await cargar();
+  }catch(err){
+    msg("error-alta", err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Crear usuario";
+  }
+});
+
+document.getElementById("tabla-usuarios").addEventListener("change", async e => {
+  const sel = e.target.closest(".sel-rol");
+  if(!sel) return;
+  const u = usuarios.find(x => x.Usuario === sel.dataset.usuario);
+  if(!u || sel.value === u.Rol) return;
+  const nuevo = sel.value;
+  const ok = await dialogo({
+    titulo: "Cambiar rol",
+    texto: `${u.Nombre} pasará a ser "${roles[nuevo].nombre}". Si tiene la sesión abierta, tendrá que volver a ingresar.`,
+    okTexto: "Cambiar rol"
+  });
+  if(!ok){ sel.value = u.Rol; return; }
+  try{
+    await sigmaApi("actualizar_usuario", {Usuario: u.Usuario, Rol: nuevo});
+    sigmaToast("Rol actualizado.");
+  }catch(err){
+    sigmaToast("No se pudo cambiar el rol: " + err.message);
+  }
+  cargar();
+});
+
+document.getElementById("tabla-usuarios").addEventListener("click", async e => {
+  const bEstado = e.target.closest(".btn-estado");
+  const bClave = e.target.closest(".btn-clave");
+
+  if(bEstado){
+    const u = usuarios.find(x => x.Usuario === bEstado.dataset.usuario);
+    const activar = bEstado.dataset.activar === "1";
+    const ok = await dialogo({
+      titulo: activar ? "Activar usuario" : "Desactivar usuario",
+      texto: activar ? `${u.Nombre} podrá volver a ingresar.` : `${u.Nombre} dejará de tener acceso de inmediato, aunque tenga la sesión abierta.`,
+      okTexto: activar ? "Activar" : "Desactivar"
+    });
+    if(!ok) return;
+    try{
+      await sigmaApi("actualizar_usuario", {Usuario: u.Usuario, Activo: activar});
+      sigmaToast(activar ? "Usuario activado." : "Usuario desactivado.");
+    }catch(err){
+      sigmaToast("No se pudo actualizar: " + err.message);
+    }
+    cargar();
+  }
+
+  if(bClave){
+    const u = usuarios.find(x => x.Usuario === bClave.dataset.usuario);
+    const clave = await dialogo({
+      titulo: "Restablecer contraseña",
+      texto: `Se creará una contraseña temporal para ${u.Nombre}. Tendrá que cambiarla al ingresar y se cerrarán sus sesiones abiertas.`,
+      pedirClave: true, okTexto: "Restablecer"
+    });
+    if(!clave) return;
+    try{
+      await sigmaApi("resetear_clave", {Usuario: u.Usuario, Clave: clave});
+      await dialogo({
+        titulo: "Contraseña restablecida",
+        texto: `Pasale esta contraseña temporal a ${u.Nombre}. No se vuelve a mostrar:`,
+        mostrarClave: clave, okTexto: "Listo", soloOk: true
+      });
+    }catch(err){
+      sigmaToast("No se pudo restablecer: " + err.message);
+    }
+    cargar();
+  }
+});
+
+cargar();
+</script>
+</body>
+</html>

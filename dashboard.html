@@ -334,6 +334,16 @@
 
 <script>
 document.getElementById("nav-slot").innerHTML = sigmaRenderNav("dashboard");
+
+// Roles sin acceso a los datos de producción (parte diario / objetivos): se oculta ese bloque y se arranca en Mecánica.
+if(!sigmaPuedeLeer("Analisis_Sector")){
+  document.querySelector(".callout-hoy").hidden = true;
+  const bProd = document.querySelector('.tab-btn[data-tab="produccion"]');
+  bProd.hidden = true; bProd.classList.remove("active");
+  document.getElementById("tab-produccion").classList.remove("active");
+  document.querySelector('.tab-btn[data-tab="mecanica"]').classList.add("active");
+  document.getElementById("tab-mecanica").classList.add("active");
+}
 document.getElementById("refresh-secs").textContent = SIGMA_CONFIG.MEDICIONES_REFRESH_MS / 1000;
 
 /* ===================== Pestañas ===================== */
