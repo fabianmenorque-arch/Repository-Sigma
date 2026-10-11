@@ -287,6 +287,7 @@ body.pantalla-acceso{align-items:center;justify-content:center;padding:1.5rem;}
 .badge-rol-admin{color:#ff8ab8;background:rgba(255,111,168,.16);}
 .badge-rol-jefe{color:var(--amber-400);background:var(--amber-glow);}
 .badge-rol-tecnico{color:#7fe0da;background:rgba(34,211,201,.14);}
+.badge-rol-operario{color:#ffd37a;background:rgba(255,176,32,.16);}
 .badge-rol-lectura{color:var(--steel-400);background:rgba(167,159,201,.14);}
 .badge-inactivo{color:#ff8a9d;background:rgba(255,88,118,.18);}
 .badge-activo{color:#5cf0bd;background:rgba(46,230,166,.16);}

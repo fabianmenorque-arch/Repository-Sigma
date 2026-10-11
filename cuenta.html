@@ -82,7 +82,7 @@ document.getElementById("form-clave").addEventListener("submit", async e => {
     const nuevaSesion = await sigmaApi("cambiar_clave", {ClaveActual: actual, ClaveNueva: nueva});
     sigmaGuardarSesion(nuevaSesion);   // el servidor entrega un token nuevo (el anterior deja de valer)
     if(obligatorio){
-      location.replace(`${SIGMA_BASE_URL}dashboard.html`);
+      location.replace(sigmaInicioURL());
       return;
     }
     sigmaToast("Contraseña actualizada.");

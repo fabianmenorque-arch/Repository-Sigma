@@ -81,6 +81,18 @@
   </div>
 </dialog>
 
+<dialog class="sigma-dialog" id="dlg-equipos" style="max-width:560px;width:calc(100% - 2rem);">
+  <h2 id="deq-titulo">Equipos asignados</h2>
+  <p id="deq-texto" style="font-size:.85rem;color:var(--steel-400);"></p>
+  <input type="search" id="deq-filtro" placeholder="Buscar equipo por nombre o código…" autocomplete="off" style="width:100%;margin-bottom:.5rem;">
+  <div id="deq-lista" style="max-height:46vh;overflow:auto;border:1px solid var(--steel-700,#3a3a52);border-radius:6px;padding:.25rem;"></div>
+  <div id="deq-resumen" class="ayuda" style="margin-top:.4rem;"></div>
+  <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.8rem;">
+    <button type="button" class="secondary" id="deq-cancelar">Cancelar</button>
+    <button type="button" id="deq-ok">Guardar</button>
+  </div>
+</dialog>
+
 <script>
 document.getElementById("nav-slot").innerHTML = sigmaRenderNav("usuarios");
 
@@ -92,6 +104,7 @@ const FILAS_ACCIONES = [
   ["Crear órdenes de trabajo", ["crear_orden"]],
   ["Modificar órdenes (estado, fechas)", ["actualizar_orden"]],
   ["Registrar mediciones", ["registrar_medicion"]],
+  ["Cargar observaciones (notas de campo)", ["crear_observacion"]],
   ["Subir fotos y cargar avances de reparación", ["subir_imagen","crear_avance"]],
   ["Dar de alta equipos", ["crear_equipo"]],
   ["Tareas de gestión (cotizaciones, compras…)", ["crear_tarea_gestion","actualizar_tarea_gestion"]],
@@ -104,7 +117,9 @@ const FILAS_PAGINAS = [
   ["Análisis (parte diario, paradas, laboratorio)", "analisis"],
   ["Alta de equipo", "alta"],
   ["Gestión", "gestion"],
-  ["Usuarios y accesos", "usuarios"]
+  ["Usuarios y accesos", "usuarios"],
+  ["Mis equipos (solo los asignados, sin otras pantallas)", "mis_equipos"],
+  ["Observaciones de operarios", "observaciones"]
 ];
 const FILAS_DATOS = [
   ["Ver costos de repuestos", "Precios"],
@@ -187,12 +202,14 @@ function pintarUsuarios(){
     const opciones = Object.keys(roles).map(r => `<option value="${sigmaEsc(r)}" ${r===u.Rol?"selected":""}>${sigmaEsc(roles[r].nombre)}</option>`).join("");
     return `<tr>
       <td><div style="font-weight:600;">${sigmaEsc(u.Nombre)}${yo ? ' <span class="badge badge-rol-lectura">vos</span>' : ""}</div>
-          <span class="mono" style="font-size:.72rem;color:var(--steel-400);">${sigmaEsc(u.Usuario)}</span></td>
+          <span class="mono" style="font-size:.72rem;color:var(--steel-400);">${sigmaEsc(u.Usuario)}</span>
+          ${u.Rol === "operario" ? `<div class="ayuda">${(u.Equipos||[]).length ? (u.Equipos.length + " equipo" + (u.Equipos.length===1?"":"s") + " asignado" + (u.Equipos.length===1?"":"s")) : "Sin equipos asignados"}</div>` : ""}</td>
       <td><select data-usuario="${sigmaEsc(u.Usuario)}" class="sel-rol" ${yo ? "disabled title='No podés cambiar tu propio rol'" : ""} style="min-width:185px;">${opciones}</select></td>
       <td><span class="badge ${u.Activo ? "badge-activo" : "badge-inactivo"}">${u.Activo ? "Activo" : "Desactivado"}</span>
           ${u.Debe_Cambiar ? '<div class="ayuda">Clave temporal pendiente</div>' : ""}</td>
       <td>${u.Ultimo_Acceso ? sigmaFmtFechaHora(u.Ultimo_Acceso) : "Nunca"}</td>
       <td style="white-space:nowrap;">
+        ${u.Rol === "operario" ? `<button class="btn-equipos" data-usuario="${sigmaEsc(u.Usuario)}" style="padding:.35rem .6rem;font-size:.74rem;">Equipos</button>` : ""}
         <button class="secondary btn-clave" data-usuario="${sigmaEsc(u.Usuario)}" style="padding:.35rem .6rem;font-size:.74rem;">Restablecer clave</button>
         ${yo ? "" : `<button class="secondary btn-estado" data-usuario="${sigmaEsc(u.Usuario)}" data-activar="${u.Activo ? "0" : "1"}" style="padding:.35rem .6rem;font-size:.74rem;">${u.Activo ? "Desactivar" : "Activar"}</button>`}
       </td>
@@ -273,6 +290,13 @@ document.getElementById("tabla-usuarios").addEventListener("change", async e => 
 document.getElementById("tabla-usuarios").addEventListener("click", async e => {
   const bEstado = e.target.closest(".btn-estado");
   const bClave = e.target.closest(".btn-clave");
+  const bEquipos = e.target.closest(".btn-equipos");
+
+  if(bEquipos){
+    const u = usuarios.find(x => x.Usuario === bEquipos.dataset.usuario);
+    if(u) abrirEquipos(u);
+    return;
+  }
 
   if(bEstado){
     const u = usuarios.find(x => x.Usuario === bEstado.dataset.usuario);
@@ -313,6 +337,57 @@ document.getElementById("tabla-usuarios").addEventListener("click", async e => {
     cargar();
   }
 });
+
+/* ---------- Asignación de equipos a operarios ---------- */
+let catalogoEquipos = null;
+async function abrirEquipos(u){
+  const dlg = document.getElementById("dlg-equipos");
+  const lista = document.getElementById("deq-lista");
+  const filtro = document.getElementById("deq-filtro");
+  const resumen = document.getElementById("deq-resumen");
+  document.getElementById("deq-titulo").textContent = "Equipos de " + u.Nombre;
+  document.getElementById("deq-texto").textContent = "Marcá los equipos que este operario puede ver y en los que puede cargar datos. No verá ningún otro equipo ni pantalla.";
+  filtro.value = "";
+  lista.innerHTML = '<div class="empty-state">Cargando equipos…</div>';
+  if(!dlg.open) dlg.showModal();
+  try{
+    if(!catalogoEquipos) catalogoEquipos = await sigmaFetchTab("Equipos");
+  }catch(err){
+    lista.innerHTML = `<div class="empty-state">No se pudo cargar: ${sigmaEsc(err.message)}</div>`;
+  }
+  const sel = new Set(u.Equipos || []);
+  const equipos = (catalogoEquipos || []).filter(e => e.Codigo_SIGMA);
+  const pintar = () => {
+    const q = filtro.value.trim().toLowerCase();
+    const vis = equipos.filter(e => !q || (e.Codigo_SIGMA + " " + (e.Maquina||"") + " " + (e.Area||"")).toLowerCase().includes(q));
+    lista.innerHTML = vis.length ? vis.map(e => `<label style="display:flex;gap:.5rem;align-items:center;padding:.3rem .4rem;cursor:pointer;">
+        <input type="checkbox" data-cod="${sigmaEsc(e.Codigo_SIGMA)}" ${sel.has(e.Codigo_SIGMA)?"checked":""} style="width:auto;">
+        <span>${sigmaEsc(e.Maquina || e.Codigo_SIGMA)} <span class="mono" style="font-size:.72rem;color:var(--steel-400);">${sigmaEsc(e.Codigo_SIGMA)}</span></span></label>`).join("")
+      : '<div class="empty-state">Sin resultados.</div>';
+    resumen.textContent = sel.size + " equipo" + (sel.size===1?"":"s") + " seleccionado" + (sel.size===1?"":"s");
+  };
+  lista.onchange = ev => {
+    const c = ev.target.closest("input[data-cod]"); if(!c) return;
+    c.checked ? sel.add(c.dataset.cod) : sel.delete(c.dataset.cod);
+    pintar();
+  };
+  filtro.oninput = pintar;
+  pintar();
+  const cerrar = () => { dlg.close(); };
+  document.getElementById("deq-cancelar").onclick = cerrar;
+  dlg.oncancel = () => {};
+  const ok = document.getElementById("deq-ok");
+  ok.onclick = async () => {
+    ok.disabled = true; ok.textContent = "Guardando…";
+    try{
+      await sigmaApi("asignar_equipos", {Usuario: u.Usuario, Equipos: Array.from(sel)});
+      sigmaToast("Equipos asignados.");
+      cerrar(); cargar();
+    }catch(err){
+      sigmaToast("No se pudo guardar: " + err.message);
+    }finally{ ok.disabled = false; ok.textContent = "Guardar"; }
+  };
+}
 
 cargar();
 </script>

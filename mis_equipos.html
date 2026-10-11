@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Mis equipos | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="sigma-utils.js"></script>
+<style>
+  .eq-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.9rem;}
+  .eq-card{display:block;width:100%;text-align:left;padding:1rem 1.1rem;cursor:pointer;color:inherit;font:inherit;
+    background:linear-gradient(155deg,var(--steel-900),var(--card-end));border:1px solid var(--line);border-radius:var(--radius);box-shadow:none;}
+  .eq-card:hover{border-color:var(--amber-500);transform:translateY(-2px);}
+  .eq-card .nombre{font-weight:700;font-size:1rem;}
+  .eq-card .meta{color:var(--steel-400);font-size:.8rem;margin-top:.2rem;}
+  .eq-card .codigo{font-family:var(--font-mono);color:var(--amber-400);font-size:.74rem;margin-top:.45rem;display:block;}
+  .volver{background:none;border:none;box-shadow:none;color:var(--amber-400);padding:.2rem 0;margin-bottom:.6rem;font-size:.9rem;}
+  .volver:hover{background:none;box-shadow:none;text-decoration:underline;}
+  .form-op input,.form-op select,.form-op textarea{font-size:1rem;padding:.75rem .8rem;}
+  .form-op button[type=submit]{width:100%;padding:.85rem;font-size:1rem;margin-top:.3rem;}
+  .fila-valor{display:grid;grid-template-columns:1fr auto;gap:.6rem;align-items:end;}
+  .unidad-tag{padding:.75rem .9rem;background:var(--steel-800);border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--steel-400);min-width:4.2rem;text-align:center;font-weight:600;}
+  .hist{list-style:none;margin:0;padding:0;}
+  .hist li{padding:.6rem 0;border-bottom:1px solid var(--line);font-size:.88rem;}
+  .hist li:last-child{border-bottom:none;}
+  .hist .cuando{color:var(--steel-400);font-size:.74rem;display:block;margin-top:.15rem;}
+  .hist .dato{font-weight:700;color:var(--amber-400);}
+  @media (max-width:860px){ .container{padding:1rem;} }
+</style>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container" id="contenedor">
+  <div class="panel-head"><h1 id="titulo">Mis equipos</h1></div>
+  <div id="vista"><div class="empty-state">Cargando…</div></div>
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("mis_equipos");
+
+const YO = sigmaSesion();
+let equipos = [], variables = [], mediciones = [], observaciones = [];
+
+function ahoraLocalInput(){
+  const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0,16);
+}
+function isoDesdeLocal(v){ return v ? new Date(v).toISOString() : ""; }
+const porFechaDesc = (a, b) => (new Date(b.Fecha_Hora) || 0) - (new Date(a.Fecha_Hora) || 0);
+
+async function cargar(){
+  try{
+    const [eq, vr, me, ob] = await Promise.all([
+      sigmaFetchTab("Equipos"), sigmaFetchTab("Variables"),
+      sigmaFetchTab("Mediciones").catch(() => []), sigmaFetchTab("Observaciones").catch(() => [])
+    ]);
+    equipos = eq; variables = vr; mediciones = me; observaciones = ob;
+    pintar();
+  }catch(err){
+    document.getElementById("vista").innerHTML = `<div class="msg-error">No se pudieron cargar tus equipos: ${sigmaEsc(err.message)}</div>`;
+  }
+}
+
+function equipoActual(){
+  const cod = new URLSearchParams(location.search).get("equipo");
+  return cod ? equipos.find(e => e.Codigo_SIGMA === cod) : null;
+}
+
+function abrir(cod){
+  history.pushState({}, "", cod ? `?equipo=${encodeURIComponent(cod)}` : location.pathname);
+  pintar(); window.scrollTo(0, 0);
+}
+window.addEventListener("popstate", pintar);
+
+function pintar(){
+  const eq = equipoActual();
+  if(eq) pintarEquipo(eq); else pintarLista();
+}
+
+/* ---------- Lista de equipos asignados ---------- */
+function pintarLista(){
+  document.getElementById("titulo").textContent = "Mis equipos";
+  const v = document.getElementById("vista");
+  if(!equipos.length){
+    v.innerHTML = `<div class="plate panel"><div class="empty-state">Todavía no tenés equipos asignados.<br>Pedile al Administrador que te los asigne.</div></div>`;
+    return;
+  }
+  v.innerHTML = `<p style="color:var(--steel-400);margin:0 0 1rem;">Tocá un equipo para cargar un dato o una observación.</p>
+    <div class="eq-lista">${equipos.map(e => `
+      <button type="button" class="eq-card" data-cod="${sigmaEsc(e.Codigo_SIGMA)}">
+        <div class="nombre">${sigmaEsc(e.Maquina || e.Codigo_SIGMA)}</div>
+        <div class="meta">${sigmaEsc([e.Ubicacion, e.Sector].filter(Boolean).join(" · "))}</div>
+        <span class="codigo">${sigmaEsc(e.Codigo_SIGMA)}</span>
+      </button>`).join("")}</div>`;
+  v.querySelectorAll(".eq-card").forEach(b => b.addEventListener("click", () => abrir(b.dataset.cod)));
+}
+
+/* ---------- Un equipo: cargar dato, observación e historial ---------- */
+function pintarEquipo(eq){
+  const cod = eq.Codigo_SIGMA;
+  document.getElementById("titulo").textContent = eq.Maquina || cod;
+  const vars = variables.filter(x => x.Codigo_Equipo === cod);
+  const misMed = mediciones.filter(x => x.Codigo_Equipo === cod).sort(porFechaDesc).slice(0, 8);
+  const misObs = observaciones.filter(x => x.Codigo_Equipo === cod).sort(porFechaDesc).slice(0, 8);
+
+  document.getElementById("vista").innerHTML = `
+    ${equipos.length > 1 ? `<button type="button" class="volver" id="btn-volver">← Mis equipos</button>` : ""}
+    <p style="color:var(--steel-400);margin:0 0 1rem;">${sigmaEsc([eq.Ubicacion, eq.Sector].filter(Boolean).join(" · "))} · <span class="mono">${sigmaEsc(cod)}</span></p>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Cargar un dato</h2></div>
+      ${vars.length ? `
+      <form id="form-dato" class="form-op">
+        <div class="field">
+          <label for="dato-variable">Qué se midió</label>
+          <select id="dato-variable">${vars.map(v => `<option value="${sigmaEsc(v.Variable)}" data-unidad="${sigmaEsc(v.Unidad)}">${sigmaEsc(v.Variable)}</option>`).join("")}</select>
+        </div>
+        <div class="fila-valor">
+          <div class="field" style="margin-bottom:0;">
+            <label for="dato-valor">Valor</label>
+            <input type="text" id="dato-valor" inputmode="decimal" autocomplete="off" placeholder="Ej: 72,5" required>
+          </div>
+          <div class="unidad-tag" id="dato-unidad">${sigmaEsc(vars[0].Unidad || "—")}</div>
+        </div>
+        <div class="field" style="margin-top:.9rem;">
+          <label for="dato-hora">Fecha y hora de la medición</label>
+          <input type="datetime-local" id="dato-hora" value="${ahoraLocalInput()}" required>
+        </div>
+        <button type="submit" id="btn-dato">Guardar dato</button>
+      </form>` : `<div class="empty-state">Este equipo todavía no tiene datos para cargar.<br>Pedile al Administrador que los configure.</div>`}
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Observación</h2></div>
+      <form id="form-obs" class="form-op">
+        <div class="field">
+          <label for="obs-texto">Qué notaste</label>
+          <textarea id="obs-texto" rows="4" maxlength="1000" placeholder="Ej: se escuchó un sonido extraño a las 14:40" required></textarea>
+        </div>
+        <div class="field">
+          <label for="obs-hora">Fecha y hora</label>
+          <input type="datetime-local" id="obs-hora" value="${ahoraLocalInput()}" required>
+        </div>
+        <button type="submit" id="btn-obs">Guardar observación</button>
+      </form>
+    </div>
+
+    <div class="plate panel">
+      <div class="panel-head"><h2>Últimos registros</h2></div>
+      <h3>Datos</h3>
+      <ul class="hist" id="hist-datos">${misMed.length ? misMed.map(m => `
+        <li><span class="dato">${sigmaEsc(m.Valor)} ${sigmaEsc(m.Unidad)}</span> · ${sigmaEsc(m.Variable)}
+          <span class="cuando">${sigmaEsc(sigmaFmtFechaHora(m.Fecha_Hora))}${m.Registrado_Por ? " · " + sigmaEsc(m.Registrado_Por) : ""}</span></li>`).join("") : `<li style="color:var(--steel-400);">Sin datos cargados todavía.</li>`}</ul>
+      <h3 style="margin-top:1rem;">Observaciones</h3>
+      <ul class="hist" id="hist-obs">${misObs.length ? misObs.map(o => `
+        <li>${sigmaEsc(o.Observacion)}
+          <span class="cuando">${sigmaEsc(sigmaFmtFechaHora(o.Fecha_Hora))}${o.Nombre ? " · " + sigmaEsc(o.Nombre) : ""}</span></li>`).join("") : `<li style="color:var(--steel-400);">Sin observaciones todavía.</li>`}</ul>
+    </div>`;
+
+  const volver = document.getElementById("btn-volver");
+  if(volver) volver.addEventListener("click", () => abrir(null));
+
+  const selVar = document.getElementById("dato-variable");
+  if(selVar) selVar.addEventListener("change", e => {
+    const opt = e.target.selectedOptions[0];
+    document.getElementById("dato-unidad").textContent = (opt && opt.dataset.unidad) || "—";
+  });
+
+  const fDato = document.getElementById("form-dato");
+  if(fDato) fDato.addEventListener("submit", async e => {
+    e.preventDefault();
+    const btn = document.getElementById("btn-dato");
+    const opt = selVar.selectedOptions[0];
+    const valor = document.getElementById("dato-valor").value.trim();
+    const hora = isoDesdeLocal(document.getElementById("dato-hora").value);
+    btn.disabled = true; btn.textContent = "Guardando…";
+    try{
+      await sigmaPost("registrar_medicion", {Codigo_Equipo: cod, Variable: selVar.value, Valor: valor, Fecha_Hora: hora});
+      mediciones.push({Codigo_Equipo: cod, Variable: selVar.value, Unidad: opt.dataset.unidad || "", Valor: valor.replace(",", "."), Fecha_Hora: hora, Registrado_Por: YO.nombre});
+      sigmaToast("Dato guardado ✔");
+      pintarEquipo(eq);
+    }catch(err){
+      sigmaToast("No se pudo guardar: " + err.message);
+      btn.disabled = false; btn.textContent = "Guardar dato";
+    }
+  });
+
+  document.getElementById("form-obs").addEventListener("submit", async e => {
+    e.preventDefault();
+    const btn = document.getElementById("btn-obs");
+    const texto = document.getElementById("obs-texto").value.trim();
+    const hora = isoDesdeLocal(document.getElementById("obs-hora").value);
+    btn.disabled = true; btn.textContent = "Guardando…";
+    try{
+      await sigmaPost("crear_observacion", {Codigo_Equipo: cod, Observacion: texto, Fecha_Hora: hora});
+      observaciones.push({Codigo_Equipo: cod, Observacion: texto.replace(/[<>]/g, ""), Fecha_Hora: hora, Nombre: YO.nombre});
+      sigmaToast("Observación guardada ✔");
+      pintarEquipo(eq);
+    }catch(err){
+      sigmaToast("No se pudo guardar: " + err.message);
+      btn.disabled = false; btn.textContent = "Guardar observación";
+    }
+  });
+}
+
+cargar();
+</script>
+</body>
+</html>

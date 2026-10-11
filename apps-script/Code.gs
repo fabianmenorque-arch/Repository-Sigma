@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-10-v12-usuarios-roles";
+const VERSION_SCRIPT = "2026-10-10-v13-operario";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -51,7 +51,8 @@ const SHEETS = {
   AVANCES: "Avances_Orden",
   PARADAS: "Paradas",
   OBJETIVOS: "Objetivos",
-  PRECIOS: "Precios"
+  PRECIOS: "Precios",
+  OBSERVACIONES: "Observaciones"
 };
 
 /* ============================================================
@@ -110,6 +111,9 @@ function despachar_(usuario, accion, body) {
     case "resetear_clave":
       exigirAdmin_(usuario);
       return resetearClave_(body);
+    case "asignar_equipos":
+      exigirAdmin_(usuario);
+      return asignarEquipos_(body);
   }
 
   if (ACCIONES_ESCRITURA.indexOf(accion) === -1) throw new Error("Acción desconocida: " + accion);
@@ -118,7 +122,9 @@ function despachar_(usuario, accion, body) {
   }
 
   sanitizarCuerpo_(body);
+  if (usuario.Rol === "operario") validarEscrituraOperario_(usuario, accion, body);
   if (ACCIONES_CON_AUTOR.indexOf(accion) !== -1) body.Registrado_Por = usuario.Nombre || usuario.Usuario;
+  if (accion === "crear_observacion") { body.Usuario = usuario.Usuario; body.Nombre = usuario.Nombre || usuario.Usuario; }
   return ejecutarEscritura_(accion, body);
 }
 
@@ -157,6 +163,8 @@ function ejecutarEscritura_(accion, body) {
       return eliminarRepuesto_(body);
     case "guardar_precio":
       return guardarPrecio_(body);
+    case "crear_observacion":
+      return crearObservacion_(body);
     default:
       throw new Error("Acción desconocida: " + accion);
   }
@@ -232,6 +240,7 @@ function crearMantenimiento_(body) {
 
 function registrarMedicion_(body) {
   const sheet = hoja_(SHEETS.MEDICIONES);
+  asegurarColumna_(sheet, "Registrado_Por");   // para saber quién cargó cada dato
   if (!body.Fecha_Hora) body.Fecha_Hora = new Date().toISOString();
   agregarFilaPorEncabezados_(sheet, body);
   return {accion: "registrar_medicion", Codigo_Equipo: body.Codigo_Equipo};
@@ -467,7 +476,7 @@ function carpetaImagenesSigma_() {
    ============================================================ */
 
 const HOJA_USUARIOS = "Usuarios";
-const COLUMNAS_USUARIOS = ["Usuario", "Nombre", "Rol", "Clave_Hash", "Salt", "Activo", "Debe_Cambiar", "Sesion", "Fecha_Creacion", "Ultimo_Acceso"];
+const COLUMNAS_USUARIOS = ["Usuario", "Nombre", "Rol", "Clave_Hash", "Salt", "Activo", "Debe_Cambiar", "Sesion", "Fecha_Creacion", "Ultimo_Acceso", "Equipos"];
 
 const DURACION_SESION_HORAS = 12;   // un turno; después hay que volver a ingresar
 const MAX_INTENTOS = 5;             // intentos fallidos antes de bloquear
@@ -482,46 +491,60 @@ const ADMIN_INICIAL_NOMBRE = "Fabian";
 const ROLES = {
   admin: "Administrador",
   jefe: "Jefe / Supervisor",
-  tecnico: "Técnico / Operario",
+  tecnico: "Técnico",
+  operario: "Operario",
   lectura: "Solo lectura"
 };
 
 // Pestañas de datos del sistema (la hoja "Usuarios" NO está en ninguna lista: nadie puede leerla desde la web)
 const PESTANAS_OPERATIVAS = ["Equipos", "Mantenimientos", "Ordenes_de_Trabajo", "Imagenes", "Variables",
-  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas"];
+  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones"];
 const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios"]);
 
 const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
   "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
   "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
-  "eliminar_repuesto", "guardar_precio"];
+  "eliminar_repuesto", "guardar_precio", "crear_observacion"];
 
 // Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
-const ACCIONES_CON_AUTOR = ["crear_equipo", "crear_orden", "crear_mantenimiento", "registrar_medicion",
+const ACCIONES_CON_AUTOR = ["crear_observacion", "crear_equipo", "crear_orden", "crear_mantenimiento", "registrar_medicion",
   "subir_imagen", "crear_tarea_gestion", "crear_avance", "crear_analisis", "crear_parada"];
 
-const PAGINAS_BASE = ["dashboard", "novedades", "equipos", "qr", "ordenes", "informes", "repuestos", "bombas"];
+const PAGINAS_BASE = ["dashboard", "novedades", "equipos", "qr", "ordenes", "informes", "repuestos", "bombas", "observaciones"];
 
 const PERMISOS = {
   admin: {
     leer: PESTANAS_TODAS,
     escribir: ACCIONES_ESCRITURA,
-    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion", "usuarios"])
+    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion", "usuarios"]),
+    inicio: "dashboard.html"
   },
   jefe: {
     leer: PESTANAS_TODAS,
     escribir: ACCIONES_ESCRITURA,
-    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion"])
+    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion"]),
+    inicio: "dashboard.html"
   },
   tecnico: {
     leer: PESTANAS_OPERATIVAS,
-    escribir: ["crear_orden", "actualizar_orden", "registrar_medicion", "subir_imagen", "crear_avance"],
-    paginas: PAGINAS_BASE
+    escribir: ["crear_orden", "actualizar_orden", "registrar_medicion", "subir_imagen", "crear_avance", "crear_observacion"],
+    paginas: PAGINAS_BASE,
+    inicio: "dashboard.html"
+  },
+  // Operario: SOLO los equipos que el Administrador le asigna, y una única pantalla ("Mis equipos").
+  // Puede cargar un dato (de las variables configuradas del equipo) y una observación con su hora.
+  operario: {
+    leer: ["Equipos", "Variables", "Mediciones", "Observaciones"],
+    escribir: ["registrar_medicion", "crear_observacion"],
+    paginas: ["mis_equipos"],
+    inicio: "mis_equipos.html",
+    soloEquiposAsignados: true
   },
   lectura: {
     leer: PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos"]),
     escribir: [],
-    paginas: PAGINAS_BASE.concat(["analisis"])
+    paginas: PAGINAS_BASE.concat(["analisis"]),
+    inicio: "dashboard.html"
   }
 };
 
@@ -628,6 +651,7 @@ function respuestaSesion_(u) {
     rolNombre: ROLES[u.Rol],
     debeCambiar: u.Debe_Cambiar === "SI",
     expira: Date.now() + DURACION_SESION_HORAS * 3600000,
+    inicio: p.inicio,
     permisos: {leer: p.leer, escribir: p.escribir, paginas: p.paginas}
   };
 }
@@ -672,7 +696,7 @@ function mapaUsuarios_() {
   if (guardado) return JSON.parse(guardado);
   const mapa = {};
   usuariosDeHoja_().forEach(u => {
-    mapa[u.Usuario] = {Usuario: u.Usuario, Nombre: u.Nombre, Rol: u.Rol, Activo: u.Activo, Debe_Cambiar: u.Debe_Cambiar, Sesion: u.Sesion};
+    mapa[u.Usuario] = {Usuario: u.Usuario, Nombre: u.Nombre, Rol: u.Rol, Activo: u.Activo, Debe_Cambiar: u.Debe_Cambiar, Sesion: u.Sesion, Equipos: u.Equipos || ""};
   });
   cache.put("SIGMA_USUARIOS", JSON.stringify(mapa), 60);
   return mapa;
@@ -769,12 +793,13 @@ function cambiarClave_(usuarioSesion, body) {
 function listarUsuarios_() {
   const roles = {};
   Object.keys(ROLES).forEach(r => {
-    roles[r] = {nombre: ROLES[r], leer: PERMISOS[r].leer, escribir: PERMISOS[r].escribir, paginas: PERMISOS[r].paginas};
+    roles[r] = {nombre: ROLES[r], leer: PERMISOS[r].leer, escribir: PERMISOS[r].escribir, paginas: PERMISOS[r].paginas, soloEquiposAsignados: !!PERMISOS[r].soloEquiposAsignados};
   });
   return {
     usuarios: usuariosDeHoja_().map(u => ({
       Usuario: u.Usuario, Nombre: u.Nombre, Rol: u.Rol, Activo: u.Activo === "SI",
-      Debe_Cambiar: u.Debe_Cambiar === "SI", Fecha_Creacion: u.Fecha_Creacion, Ultimo_Acceso: u.Ultimo_Acceso
+      Debe_Cambiar: u.Debe_Cambiar === "SI", Fecha_Creacion: u.Fecha_Creacion, Ultimo_Acceso: u.Ultimo_Acceso,
+      Equipos: listaEquipos_(u.Equipos)
     })),
     roles: roles
   };
@@ -866,7 +891,9 @@ function leerTablas_(usuario, body) {
   nombres.slice(0, 20).forEach(n => {
     try {
       if (permitidas.indexOf(n) === -1) throw errorPermiso_("Tu rol no tiene acceso a '" + n + "'.");
-      salida[n] = {ok: true, filas: filasDeHoja_(n)};
+      let filas = filasDeHoja_(n);
+      if (PERMISOS[usuario.Rol].soloEquiposAsignados) filas = filtrarPorEquipos_(n, filas, usuario);
+      salida[n] = {ok: true, filas: filas};
     } catch (err) {
       salida[n] = {ok: false, error: err.message, codigo: err.codigo || ""};
     }
@@ -876,7 +903,7 @@ function leerTablas_(usuario, body) {
 
 /** Filas de una pestaña como objetos {columna: texto}, igual que el viejo parser de CSV. */
 function filasDeHoja_(nombre) {
-  const sheet = hoja_(nombre);
+  const sheet = nombre === SHEETS.OBSERVACIONES ? hojaObservaciones_() : hoja_(nombre);
   if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) return [];
   const vals = sheet.getDataRange().getDisplayValues();
   const h = vals.shift().map(x => String(x).trim());
@@ -902,6 +929,98 @@ function sanitizarCuerpo_(obj) {
       sanitizarCuerpo_(v);
     }
   });
+}
+
+/* ---------------- Operario: equipos asignados, datos y observaciones ---------------- */
+
+const COLUMNAS_OBSERVACIONES = ["Fecha_Hora", "Codigo_Equipo", "Usuario", "Nombre", "Observacion", "Fecha_Registro"];
+
+function hojaObservaciones_() {
+  return hojaOCrear_(SHEETS.OBSERVACIONES, COLUMNAS_OBSERVACIONES);
+}
+
+/** "BV-CA-B001, BV-CA-B002" → ["BV-CA-B001","BV-CA-B002"] */
+function listaEquipos_(texto) {
+  return String(texto || "").split(",").map(x => x.trim()).filter(Boolean);
+}
+
+/** Deja solo las filas de los equipos asignados al operario (y como máximo las 300 más recientes de Mediciones/Observaciones). */
+function filtrarPorEquipos_(pestana, filas, usuario) {
+  const mios = {};
+  listaEquipos_(usuario.Equipos).forEach(c => mios[c] = true);
+  const col = pestana === "Equipos" ? "Codigo_SIGMA" : "Codigo_Equipo";
+  let r = filas.filter(f => mios[f[col]]);
+  if (pestana === "Mediciones" || pestana === "Observaciones") r = r.slice(-300);
+  return r;
+}
+
+function exigirEquipoAsignado_(usuario, codigo) {
+  if (!codigo || listaEquipos_(usuario.Equipos).indexOf(String(codigo)) === -1) {
+    throw errorPermiso_("Ese equipo no está asignado a tu usuario.");
+  }
+}
+
+/** Hora indicada por quien carga el dato (se carga a fin de turno): no futura y como máximo 72 h atrás. */
+function validarFechaHora_(valor) {
+  if (!valor) return ahoraISO_();
+  const t = new Date(valor).getTime();
+  if (isNaN(t)) throw new Error("La fecha y hora indicadas no son válidas.");
+  const ahora = Date.now();
+  if (t > ahora + 5 * 60000) throw new Error("La fecha y hora no pueden ser futuras.");
+  if (t < ahora - 72 * 3600000) throw new Error("La fecha y hora son demasiado antiguas (máximo 72 horas atrás).");
+  return new Date(t).toISOString();
+}
+
+/** Reglas extra para el operario: solo sus equipos, solo variables configuradas, valor numérico. */
+function validarEscrituraOperario_(usuario, accion, body) {
+  exigirEquipoAsignado_(usuario, body.Codigo_Equipo);
+  body.Fecha_Hora = validarFechaHora_(body.Fecha_Hora);
+
+  if (accion === "registrar_medicion") {
+    const variable = String(body.Variable || "").trim();
+    const conf = filasDeHoja_("Variables").filter(v => v.Codigo_Equipo === body.Codigo_Equipo && v.Variable === variable)[0];
+    if (!conf) throw new Error("Ese dato no está configurado para este equipo.");
+    const texto = String(body.Valor === undefined ? "" : body.Valor).replace(",", ".").trim();
+    if (!texto || !isFinite(Number(texto))) throw new Error("El valor tiene que ser un número.");
+    body.Variable = variable;
+    body.Unidad = conf.Unidad || "";   // la unidad sale de la configuración, no del navegador
+    body.Valor = Number(texto);
+  }
+}
+
+function crearObservacion_(body) {
+  const texto = String(body.Observacion || "").trim();
+  if (!texto) throw new Error("Escribí la observación.");
+  if (texto.length > 1000) throw new Error("La observación es muy larga (máximo 1000 caracteres).");
+  if (!body.Codigo_Equipo || !existeValor_(hoja_(SHEETS.EQUIPOS), "Codigo_SIGMA", body.Codigo_Equipo)) {
+    throw new Error("No existe el equipo " + body.Codigo_Equipo + ".");
+  }
+  agregarFilaPorEncabezados_(hojaObservaciones_(), {
+    Fecha_Hora: validarFechaHora_(body.Fecha_Hora),
+    Codigo_Equipo: body.Codigo_Equipo,
+    Usuario: body.Usuario,
+    Nombre: body.Nombre,
+    Observacion: texto,
+    Fecha_Registro: ahoraISO_()
+  });
+  return {accion: "crear_observacion", Codigo_Equipo: body.Codigo_Equipo};
+}
+
+/** Administrador: define qué equipos puede ver y cargar un operario. */
+function asignarEquipos_(body) {
+  const id = normalizarUsuario_(body.Usuario);
+  const u = buscarUsuario_(id);
+  if (!u) throw new Error("No existe el usuario '" + id + "'.");
+  if (u.Rol !== "operario") throw new Error("Solo se asignan equipos a usuarios con rol Operario.");
+  const pedidos = Array.isArray(body.Equipos) ? body.Equipos.map(c => String(c).trim()).filter(Boolean) : [];
+  const unicos = pedidos.filter((c, i) => pedidos.indexOf(c) === i);
+  const hojaEq = hoja_(SHEETS.EQUIPOS);
+  const existentes = {};
+  filasDeHoja_("Equipos").forEach(e => existentes[e.Codigo_SIGMA] = true);
+  const inexistentes = unicos.filter(c => !existentes[c]);
+  if (inexistentes.length) throw new Error("No existen estos equipos: " + inexistentes.slice(0, 5).join(", "));
+  guardarCamposUsuario_(u._fila, {Equipos: unicos.join(",")});
+  return {accion: "asignar_equipos", Usuario: id, cantidad: unicos.length};
 }
 
 /* ---------------- Puesta en marcha (se corren a mano desde el editor) ---------------- */

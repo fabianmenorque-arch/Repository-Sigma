@@ -46,13 +46,13 @@ sigmaSetFavicon("");
 
 function destinoSeguro(){
   const volver = new URLSearchParams(location.search).get("volver");
-  if(!volver) return `${SIGMA_BASE_URL}dashboard.html`;
+  if(!volver) return sigmaInicioURL();
   try{
     const u = new URL(volver, location.origin);
     const raiz = new URL(SIGMA_BASE_URL).pathname;
     if(u.origin === location.origin && u.pathname.startsWith(raiz) && !u.pathname.endsWith("login.html")) return u.href;
   }catch(e){}
-  return `${SIGMA_BASE_URL}dashboard.html`;
+  return sigmaInicioURL();
 }
 
 function irAlSistema(ses){
