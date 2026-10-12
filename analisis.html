@@ -678,7 +678,7 @@ document.getElementById("mes-objetivo").value = sigmaMesActual();
 cargarObjetivos();
 
 /* ===================== PARADAS (Excel) ===================== */
-const MESES_VALIDOS = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"];
+const MESES_VALIDOS = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO","SEPTIEMBRE","SETIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"];
 let paradasCargadas = [];
 let paradasFiltradas = [];
 let chartPareto = null, chartTendencia = null, chartSectores = null;
@@ -711,12 +711,18 @@ function areaDeParada(causa){
     siempre la primera fila, lo cual rompía la lectura de hojas donde no
     lo era (todas las columnas salían como "__EMPTY", "__EMPTY_1"...). */
 function encontrarFilaEncabezado(sheet){
-  const filas = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, defval:"", blankrows:false});
-  for(let i=0; i<Math.min(filas.length, 20); i++){
+  // blankrows:true es clave: con false se descartan las filas vacías de arriba
+  // (título, espacios) y el índice que devuelve ya no coincide con la fila real
+  // de la hoja → el encabezado se "encontraba" en la fila 1 y todas las
+  // columnas salían como __EMPTY. Además, sheet_to_json empieza en la primera
+  // fila de la hoja (!ref), así que se suma ese desplazamiento.
+  const filas = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, defval:"", blankrows:true});
+  const inicio = sheet["!ref"] ? XLSX.utils.decode_range(sheet["!ref"]).s.r : 0;
+  for(let i=0; i<Math.min(filas.length, 30); i++){
     const normalizada = filas[i].map(c => String(c).trim().toUpperCase());
-    if(normalizada.some(c => c === "F.PARADA" || c === "F. PARADA")) return i;
+    if(normalizada.some(c => c === "F.PARADA" || c === "F. PARADA")) return inicio + i;
   }
-  return 0; // no se encontró — asumir la primera fila, como antes
+  return inicio; // no se encontró — asumir la primera fila de la hoja
 }
 
 /** Normaliza una celda de fecha (F.Parada / F.Arranque) a "D/M/YYYY" sin
