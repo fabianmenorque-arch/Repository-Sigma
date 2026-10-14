@@ -557,6 +557,8 @@ function sigmaInitGallery(containerSelector){
  * aparece la próxima vez que se recarguen los datos.
  */
 async function sigmaSubirImagen(file, campos = {}){
+  if(file.size > 12*1024*1024) throw new Error("La foto es demasiado grande (máximo 12 MB). Sacala con menor resolución o recortala.");
+  if(file.type && !/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Solo se aceptan fotos JPG, PNG o WEBP.");
   const base64 = await new Promise((resolve, reject) => {
     const lector = new FileReader();
     lector.onload = () => resolve(lector.result.split(",")[1]);
