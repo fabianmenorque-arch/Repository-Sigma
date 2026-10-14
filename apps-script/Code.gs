@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-13-v14-cierre-campania";
+const VERSION_SCRIPT = "2026-10-14-v15-fix-rango-vacio";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -1371,7 +1371,9 @@ function buscarFila_(sheet, columna, valor) {
   const headers = encabezados_(sheet);
   const col = headers.indexOf(columna);
   if (col === -1) throw new Error("La pestaña no tiene columna '" + columna + "'.");
-  const valores = sheet.getRange(2, col + 1, Math.max(sheet.getLastRow() - 1, 0), 1).getValues();
+  const total = sheet.getLastRow() - 1;
+  if (total < 1) return -1; // solo encabezados: Sheets no acepta rangos de 0 filas
+  const valores = sheet.getRange(2, col + 1, total, 1).getValues();
   for (let i = 0; i < valores.length; i++) {
     if (String(valores[i][0]) === String(valor)) return i + 2; // +2: offset de header y de índice 0
   }
