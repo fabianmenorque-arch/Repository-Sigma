@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Campañas | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="sigma-utils.js"></script>
+<style>
+  .camp-datos{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.8rem;margin-bottom:1rem;}
+  .camp-datos div{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:.65rem .8rem;}
+  .camp-datos small{display:block;color:var(--steel-400,#a79fc9);font-size:.72rem;margin-bottom:.15rem;}
+  .camp-datos strong{font-size:1.02rem;color:var(--steel-200,#f3f0ff);}
+  .fila-campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.9rem;}
+  .bloque-form{border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:1rem 1.1rem;margin:1rem 0;}
+  .bloque-form h3{margin:0 0 .7rem;font-size:.95rem;}
+  .aviso-peligro{background:rgba(255,88,118,.10);border:1px solid rgba(255,88,118,.32);border-radius:10px;padding:.8rem 1rem;font-size:.84rem;line-height:1.5;margin:.9rem 0;}
+  .aviso-ok{background:rgba(92,240,189,.10);border:1px solid rgba(92,240,189,.35);border-radius:10px;padding:.9rem 1.1rem;font-size:.88rem;line-height:1.55;margin:.9rem 0;}
+  .aviso-ok a{color:#5cf0bd;font-weight:700;}
+  .tabla-comp td.num,.tabla-comp th.num{text-align:right;white-space:nowrap;}
+  .tabla-comp tr.grupo td{background:rgba(139,108,242,.14);font-weight:700;font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;}
+  .tabla-comp .var-pos{color:#5cf0bd;}
+  .tabla-comp .var-neg{color:#ff8a9d;}
+  .tabla-comp .var-neu{color:var(--steel-400,#a79fc9);}
+  .elegir-camp{display:flex;flex-wrap:wrap;gap:.6rem;margin:.6rem 0 1rem;}
+  .elegir-camp label{text-transform:none;letter-spacing:0;white-space:nowrap;margin:0;display:flex;align-items:center;gap:.45rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:.4rem .85rem;font-size:.84rem;cursor:pointer;}
+  .elegir-camp input{accent-color:#8b6cf2;width:auto;padding:0;margin:0;}
+  .chip-estado{display:inline-block;font-size:.7rem;font-weight:700;padding:.1rem .55rem;border-radius:999px;background:rgba(92,240,189,.15);color:#5cf0bd;margin-left:.4rem;}
+  .btn-peligro{background:linear-gradient(135deg,#e0405f,#ff6f8c)!important;}
+  .btn-peligro:disabled{opacity:.4;cursor:not-allowed;}
+</style>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head"><h1>Campañas</h1></div>
+
+  <!-- ===================== CAMPAÑA EN CURSO ===================== -->
+  <div class="plate panel">
+    <div class="panel-head"><h2>Campaña en curso</h2><span class="status-line" id="estado-activa"></span></div>
+    <div class="camp-datos" id="datos-activa"><div><small>Cargando…</small></div></div>
+
+    <div id="bloque-editar" hidden>
+      <details>
+        <summary style="cursor:pointer;font-size:.85rem;color:var(--steel-400,#a79fc9);">Cambiar nombre, fecha de inicio o duración</summary>
+        <div id="error-editar" class="msg-error" style="display:none;margin-top:.8rem;"></div>
+        <div class="fila-campos" style="margin-top:.8rem;">
+          <div class="field"><label for="ed-nombre">Nombre</label><input type="text" id="ed-nombre" maxlength="80"></div>
+          <div class="field"><label for="ed-inicio">Inicio de la campaña</label><input type="date" id="ed-inicio"></div>
+          <div class="field"><label for="ed-dias">Días previstos</label><input type="number" id="ed-dias" min="1" max="400"></div>
+        </div>
+        <button type="button" id="btn-guardar-activa">Guardar</button>
+        <div class="ayuda" id="ayuda-editar"></div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ===================== CERRAR CAMPAÑA (solo Administrador) ===================== -->
+  <div class="plate panel" id="panel-cierre" hidden>
+    <div class="panel-head"><h2>Cerrar campaña</h2></div>
+    <p style="font-size:.86rem;line-height:1.55;color:var(--steel-400,#a79fc9);margin-top:0;">
+      Al cerrar la campaña, SIGMA guarda <strong>una copia completa del Sheet en Drive</strong> (carpeta
+      «SIGMA - Campañas archivadas») y deja vacíos los datos operativos para empezar la siguiente campaña de cero.
+      Después podés comparar la campaña archivada con otras desde esta misma pantalla.
+    </p>
+    <button type="button" id="btn-vista-previa">Ver qué se va a archivar</button>
+    <div id="error-cierre" class="msg-error" style="display:none;margin-top:.9rem;"></div>
+
+    <div id="cierre-paso2" hidden>
+      <div class="table-scroll" style="max-height:none;margin-top:1rem;">
+        <table class="sigma-table" id="tabla-previa">
+          <thead><tr><th>Pestaña</th><th class="num">Filas</th><th>Qué pasa</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="ayuda" id="se-conserva"></p>
+
+      <div class="bloque-form">
+        <h3>Campaña que se cierra</h3>
+        <div class="fila-campos">
+          <div class="field"><label for="ci-nombre">Nombre</label><input type="text" id="ci-nombre" maxlength="80"></div>
+          <div class="field"><label for="ci-inicio">Inicio</label><input type="date" id="ci-inicio"></div>
+          <div class="field"><label for="ci-dias">Días previstos</label><input type="number" id="ci-dias" min="1" max="400"></div>
+          <div class="field"><label for="ci-cierre">Fecha de cierre</label><input type="date" id="ci-cierre"></div>
+        </div>
+        <div class="field"><label for="ci-obs">Observaciones (opcional)</label><input type="text" id="ci-obs" maxlength="200" placeholder="Ej: zafra cortada por lluvias en septiembre"></div>
+      </div>
+
+      <div class="bloque-form">
+        <h3>Campaña siguiente</h3>
+        <div class="fila-campos">
+          <div class="field"><label for="cn-nombre">Nombre</label><input type="text" id="cn-nombre" maxlength="80"></div>
+          <div class="field"><label for="cn-inicio">Inicio previsto</label><input type="date" id="cn-inicio"></div>
+          <div class="field"><label for="cn-dias">Días previstos</label><input type="number" id="cn-dias" min="1" max="400"></div>
+        </div>
+        <div class="ayuda">Si todavía no sabés la fecha exacta, poné una aproximada: se puede cambiar después en «Campaña en curso».</div>
+      </div>
+
+      <div class="aviso-peligro">
+        <strong>Este paso vacía los datos operativos y no se puede deshacer desde SIGMA.</strong>
+        Antes de borrar nada se hace la copia en Drive y se comprueba que tenga las mismas filas que el original;
+        si algo no coincide, el cierre se cancela y no se toca ningún dato. Las fotos quedan en Drive.
+        <div class="field" style="margin:.8rem 0 0;">
+          <label for="ci-frase">Para confirmar, escribí <code id="frase-texto">CERRAR CAMPAÑA</code></label>
+          <input type="text" id="ci-frase" autocomplete="off" spellcheck="false" style="max-width:280px;">
+        </div>
+      </div>
+      <button type="button" id="btn-cerrar" class="btn-peligro" disabled>Archivar y cerrar campaña</button>
+      <span class="status-line" id="estado-cierre" style="display:inline-flex;margin-left:.8rem;"></span>
+    </div>
+
+    <div id="cierre-resultado"></div>
+  </div>
+
+  <!-- ===================== HISTORIAL ===================== -->
+  <div class="plate panel">
+    <div class="panel-head"><h2>Campañas archivadas</h2><span class="status-line" id="resumen-hist"></span></div>
+    <div class="table-scroll" style="max-height:none;">
+      <table class="sigma-table" id="tabla-hist">
+        <thead><tr><th>Campaña</th><th>Inicio</th><th>Cierre</th><th>Cerrada por</th><th>Archivo</th></tr></thead>
+        <tbody><tr><td colspan="5" class="empty-state">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===================== COMPARAR ===================== -->
+  <div class="plate panel">
+    <div class="panel-head"><h2>Comparar campañas</h2></div>
+    <div id="comp-vacio" class="empty-state" hidden>
+      Todavía no hay campañas cerradas. Cuando cierres la primera, vas a poder compararla acá con la que está en curso.
+    </div>
+    <div id="comp-contenido" hidden>
+      <div class="ayuda">Elegí de 2 a 4 campañas. Las campañas archivadas se leen de su copia en Drive; puede tardar unos segundos.</div>
+      <div class="elegir-camp" id="elegir-camp"></div>
+      <button type="button" id="btn-comparar">Comparar</button>
+      <span class="status-line" id="estado-comp" style="display:inline-flex;margin-left:.8rem;"></span>
+      <div id="error-comp" class="msg-error" style="display:none;margin-top:.9rem;"></div>
+
+      <div id="resultado-comp" hidden>
+        <div class="table-scroll" style="max-height:none;margin-top:1.2rem;">
+          <table class="sigma-table tabla-comp" id="tabla-comp"></table>
+        </div>
+        <p class="ayuda" id="nota-comp"></p>
+
+        <div class="grid-2" style="margin-top:1.2rem;">
+          <div class="plate panel">
+            <div class="panel-head"><h2>Caña neta molida acumulada</h2></div>
+            <div class="chart-box"><canvas id="ch-cana"></canvas></div>
+            <div class="ayuda">Por día de campaña (día 1 = inicio de cada una), en toneladas.</div>
+          </div>
+          <div class="plate panel">
+            <div class="panel-head"><h2>Horas de parada por sector</h2></div>
+            <div class="chart-box"><canvas id="ch-sectores"></canvas></div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="plate panel">
+            <div class="panel-head"><h2>Órdenes de trabajo por tipo</h2></div>
+            <div class="chart-box"><canvas id="ch-ordenes"></canvas></div>
+          </div>
+          <div class="plate panel">
+            <div class="panel-head"><h2>Eficiencia mecánica</h2></div>
+            <div class="chart-box"><canvas id="ch-eficiencia"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   LÓGICA DE CÁLCULO (sin DOM) — la misma que usa el dashboard
+   ========================================================= */
+/* ===== INICIO LÓGICA ===== */
+
+/** Fechas de "Paradas": D/M/AAAA (formato del Excel del ingenio), también M/D/AA, AAAA-MM-DD y D-M-AAAA. */
+function fechaParada(str){
+  if(!str) return null;
+  const s = String(str).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  if(m){ const d = new Date(+m[1], +m[2]-1, +m[3]); return (isNaN(d) || d.getMonth() !== +m[2]-1) ? null : d; }
+  m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})(?:[T\s].*)?$/);
+  if(!m) return null;
+  const a = +m[1], b = +m[2], anio = m[3].length === 2 ? 2000 + (+m[3]) : +m[3];
+  let dia, mes;
+  if(a > 12 && b <= 12){ dia = a; mes = b; }
+  else if(b > 12 && a <= 12){ mes = a; dia = b; }
+  else if(a <= 12 && b <= 12){ if(m[3].length === 2) return null; dia = a; mes = b; }
+  else return null;
+  const d = new Date(anio, mes-1, dia);
+  return (isNaN(d) || d.getMonth() !== mes-1) ? null : d;
+}
+
+/** El Sheet guarda los números con coma decimal ("3,72"). */
+function parseNumeroES(str){
+  if(str == null) return null;
+  const limpio = String(str).replace(/%/g,"").trim();
+  if(!limpio) return null;
+  const num = parseFloat(limpio.replace(/\./g,"").replace(",","."));
+  return isNaN(num) ? null : num;
+}
+
+/** Valores diarios de una métrica de Analisis_Sector dentro de [ini, fin]. Si una fecha se cargó
+    más de una vez, vale la última carga. Devuelve {"AAAA-MM-DD": valor}. */
+function serieDiaria(filas, metrica, ini, fin){
+  const porFecha = {};
+  (filas || []).forEach(a => {
+    if(a.Metrica !== metrica) return;
+    const iso = sigmaFechaAISO(a.Fecha), v = parseNumeroES(a.Valor);
+    if(!iso || v == null) return;
+    const d = new Date(iso + "T00:00:00");
+    if(d < ini || d > fin) return;
+    porFecha[iso] = v;
+  });
+  return porFecha;
+}
+
+function promedio(arr){ return arr.length ? arr.reduce((s,x) => s + x, 0) / arr.length : null; }
+
+/** Resume una campaña. c = {nombre, inicio:"AAAA-MM-DD", dias, cierre:"AAAA-MM-DD"|"", activa:bool}
+    datos = {Paradas, Analisis_Sector, Ordenes_de_Trabajo} (filas tal como las entrega el servidor). */
+function resumirCampania(c, datos, ahora){
+  const ini = new Date(c.inicio + "T00:00:00");
+  const finPrev = new Date(ini); finPrev.setDate(finPrev.getDate() + c.dias - 1);        // igual que el dashboard
+  let fin;
+  if(c.activa) fin = ahora < finPrev ? ahora : finPrev;
+  else { const cierre = c.cierre ? new Date(c.cierre + "T23:59:59") : finPrev; fin = cierre < finPrev ? cierre : finPrev; }
+  const horasCamp = Math.max(1, (fin - ini) / 36e5);
+
+  // --- Paradas ---
+  const paradas = (datos.Paradas || []).map(r => ({
+    f: fechaParada(r.Fecha), causa: String(r.Causa || "").trim(), min: parseFloat(r.Duracion_Min) || 0
+  })).filter(p => p.f && p.causa && p.f >= ini && p.f <= fin);
+  const sectores = {};            // clave normalizada → {etiqueta, horas}
+  paradas.forEach(p => {
+    const area = sigmaAreaParada(p.causa);
+    const clave = sigmaNormalizarTexto(area);
+    if(!sectores[clave]) sectores[clave] = {etiqueta: area, horas: 0};
+    sectores[clave].horas += p.min / 60;
+  });
+  const mec = paradas.filter(p => sigmaAreaParada(p.causa) === "Mecánica");
+  const horasMec = mec.reduce((s,p) => s + p.min, 0) / 60;
+  const horasTotal = paradas.reduce((s,p) => s + p.min, 0) / 60;
+
+  // --- Producción y laboratorio ---
+  const cana = serieDiaria(datos.Analisis_Sector, "Caña Neta Molida", ini, fin);
+  const azucar = serieDiaria(datos.Analisis_Sector, "Azúcar Producida (Fábrica)", ini, fin);
+  const pol = serieDiaria(datos.Analisis_Sector, "Bagazo - Pol", ini, fin);
+  const hum = serieDiaria(datos.Analisis_Sector, "Bagazo - Humedad", ini, fin);
+  const fechasCana = Object.keys(cana).sort();
+  const canaTon = fechasCana.reduce((s,f) => s + cana[f], 0) / 1000;      // el Sheet guarda Kg
+
+  // Acumulado por día de campaña (día 1 = inicio)
+  const acumulado = [];
+  let acc = 0;
+  fechasCana.forEach(f => {
+    acc += cana[f] / 1000;
+    const dia = Math.floor((new Date(f + "T00:00:00") - ini) / 86400000) + 1;
+    acumulado.push({dia, ton: acc});
+  });
+
+  const ordenes = sigmaConteoPorTipo(datos.Ordenes_de_Trabajo || []);
+  const ordenesTotal = ordenes.preventivo + ordenes.predictivo + ordenes.correctivo + ordenes.otro;
+
+  return {
+    nombre: c.nombre, ini, fin, horasCamp,
+    cana_total: fechasCana.length ? canaTon : null,
+    cana_dias: fechasCana.length,
+    cana_prom: fechasCana.length ? canaTon / fechasCana.length : null,
+    azucar_total: Object.keys(azucar).length ? Object.values(azucar).reduce((s,x) => s + x, 0) / 1000 : null,
+    pol_prom: promedio(Object.values(pol)), hum_prom: promedio(Object.values(hum)),
+    paradas_n: paradas.length, paradas_horas: horasTotal,
+    mec_n: mec.length, mec_horas: horasMec,
+    mec_eficiencia: Math.max(0, 100 * (1 - horasMec / horasCamp)),
+    mec_mtbf: mec.length ? (horasCamp - horasMec) / mec.length : horasCamp,
+    mec_prom_min: mec.length ? horasMec * 60 / mec.length : null,
+    ordenes, ordenes_total: ordenesTotal,
+    ordenes_correctivas_pct: ordenesTotal ? 100 * ordenes.correctivo / ordenesTotal : null,
+    sectores: Object.values(sectores).sort((a,b) => b.horas - a.horas),
+    acumulado
+  };
+}
+
+/** Variación porcentual de b respecto de a (null si no se puede calcular). */
+function variacionPct(a, b){
+  if(a == null || b == null || a === 0) return null;
+  return (b - a) / Math.abs(a) * 100;
+}
+/* ===== FIN LÓGICA ===== */
+</script>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("campanias");
+
+const ES_ADMIN = sigmaRol() === "admin";
+const $ = id => document.getElementById(id);
+let ACTIVA = null;            // campaña en curso (de sigmaCampaniaActiva)
+let CERRADAS = [];            // campañas archivadas, más reciente primero
+const cacheDatos = {};        // datos de campañas archivadas ya leídos
+let graficos = {};
+
+const fmtNum = (n, dec = 1) => n == null || isNaN(n) ? "—" : n.toLocaleString("es-AR", {minimumFractionDigits: 0, maximumFractionDigits: dec});
+const fmtFechaISO = iso => iso ? new Date(iso + "T00:00:00").toLocaleDateString("es-AR") : "—";
+function fmtDiasHoras(h){
+  if(h == null || isNaN(h)) return "—";
+  const tot = Math.round(h * 60), d = Math.floor(tot / 1440), hh = Math.floor((tot % 1440) / 60);
+  return d > 0 ? `${d}d ${hh}h` : `${hh}h`;
+}
+const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+function mostrarError(id, msg){ const el = $(id); el.textContent = msg || ""; el.style.display = msg ? "block" : "none"; }
+function enlaceSeguro(url){ return /^https:\/\/(docs|drive)\.google\.com\//.test(url || "") ? url : ""; }
+
+/* ---------------- Carga de campañas ---------------- */
+async function cargarCampanias(){
+  const [activa, filas] = await Promise.all([
+    sigmaCampaniaActiva(),
+    sigmaFetchTab("Campanias").catch(() => [])
+  ]);
+  ACTIVA = activa;
+  CERRADAS = filas.filter(f => f.Estado === "Cerrada")
+    .map(f => ({id: f.Campania_Id, nombre: f.Nombre, inicio: sigmaFechaAISO(f.Fecha_Inicio), dias: parseInt(f.Dias_Previstos, 10) || 130,
+                cierre: sigmaFechaAISO(f.Fecha_Cierre), por: f.Cerrada_Por, url: f.Archivo_URL, obs: f.Observaciones, activa: false}))
+    .sort((a, b) => b.inicio.localeCompare(a.inicio));
+  pintarActiva(); pintarHistorial(); pintarSelectorComparacion();
+}
+
+function pintarActiva(){
+  const ini = new Date(ACTIVA.inicio + "T00:00:00");
+  const fin = new Date(ini); fin.setDate(fin.getDate() + ACTIVA.dias - 1);
+  const dia = Math.min(ACTIVA.dias, Math.max(0, Math.floor((new Date() - ini) / 86400000) + 1));
+  $("datos-activa").innerHTML = `
+    <div><small>Campaña</small><strong>${sigmaEsc(ACTIVA.nombre)}</strong></div>
+    <div><small>Inicio</small><strong>${ini.toLocaleDateString("es-AR")}</strong></div>
+    <div><small>Fin estimado</small><strong>${fin.toLocaleDateString("es-AR")}</strong></div>
+    <div><small>Días previstos</small><strong>${ACTIVA.dias}</strong></div>
+    <div><small>Avance</small><strong>${dia === 0 ? "Aún no empezó" : `Día ${dia} de ${ACTIVA.dias}`}</strong></div>`;
+  $("estado-activa").textContent = ACTIVA.desdeHoja ? "" : "Configuración inicial (todavía no guardada en SIGMA)";
+  $("bloque-editar").hidden = !ES_ADMIN;
+  $("panel-cierre").hidden = !ES_ADMIN;
+  $("ed-nombre").value = ACTIVA.nombre; $("ed-inicio").value = ACTIVA.inicio; $("ed-dias").value = ACTIVA.dias;
+  $("btn-guardar-activa").textContent = ACTIVA.desdeHoja ? "Guardar cambios" : "Guardar esta campaña en SIGMA";
+  $("ayuda-editar").textContent = ACTIVA.desdeHoja ? "" :
+    "Hasta que la guardes, el Dashboard usa las fechas fijas de la configuración. Al guardarla, el Dashboard las toma de acá.";
+}
+
+function pintarHistorial(){
+  $("resumen-hist").textContent = CERRADAS.length ? `${CERRADAS.length} campaña(s)` : "";
+  const tb = $("tabla-hist").querySelector("tbody");
+  if(!CERRADAS.length){ tb.innerHTML = `<tr><td colspan="5" class="empty-state">Todavía no hay campañas cerradas.</td></tr>`; return; }
+  tb.innerHTML = CERRADAS.map(c => {
+    const url = enlaceSeguro(c.url);
+    return `<tr>
+      <td><strong>${sigmaEsc(c.nombre)}</strong>${c.obs ? `<div class="ayuda" style="margin:.1rem 0 0;">${sigmaEsc(c.obs)}</div>` : ""}</td>
+      <td>${fmtFechaISO(c.inicio)}</td><td>${fmtFechaISO(c.cierre)}</td><td>${sigmaEsc(c.por || "—")}</td>
+      <td>${url ? `<a href="${sigmaEsc(url)}" target="_blank" rel="noopener">Abrir en Drive</a>` : "—"}</td></tr>`;
+  }).join("");
+}
+
+/* ---------------- Editar campaña en curso ---------------- */
+$("btn-guardar-activa").addEventListener("click", async () => {
+  mostrarError("error-editar", "");
+  const btn = $("btn-guardar-activa"); btn.disabled = true;
+  try{
+    await sigmaApi("actualizar_campania_activa", {Nombre: $("ed-nombre").value, Fecha_Inicio: $("ed-inicio").value, Dias_Previstos: $("ed-dias").value});
+    sigmaToast("Campaña guardada.");
+    await cargarCampanias();
+  }catch(e){ mostrarError("error-editar", e.message); }
+  finally{ btn.disabled = false; }
+});
+
+/* ---------------- Cierre de campaña ---------------- */
+let FRASE = "CERRAR CAMPAÑA";
+function validarFrase(){ $("btn-cerrar").disabled = $("ci-frase").value.trim() !== FRASE; }
+$("ci-frase").addEventListener("input", validarFrase);
+
+$("btn-vista-previa").addEventListener("click", async () => {
+  mostrarError("error-cierre", ""); $("cierre-resultado").innerHTML = "";
+  const btn = $("btn-vista-previa"); btn.disabled = true; btn.textContent = "Consultando…";
+  try{
+    const vp = await sigmaApi("vista_previa_cierre");
+    FRASE = vp.frase_confirmacion || FRASE; $("frase-texto").textContent = FRASE;
+    $("tabla-previa").querySelector("tbody").innerHTML = vp.detalle.map(d => `
+      <tr><td>${sigmaEsc(d.pestana)}</td><td class="num">${d.existe ? d.filas.toLocaleString("es-AR") : "—"}</td>
+      <td>${!d.existe ? "No existe todavía (nada que archivar)" : d.filas ? "Se archiva y se vacía" : "Vacía"}</td></tr>`).join("") +
+      `<tr><td><strong>Total</strong></td><td class="num"><strong>${vp.total_filas.toLocaleString("es-AR")}</strong></td><td></td></tr>`;
+    $("se-conserva").textContent = "Se conserva tal cual: " + vp.se_conserva.join(", ") + ".";
+
+    // Valores sugeridos
+    $("ci-nombre").value = ACTIVA.nombre; $("ci-inicio").value = ACTIVA.inicio; $("ci-dias").value = ACTIVA.dias;
+    $("ci-cierre").value = hoyISO(); $("ci-obs").value = "";
+    $("cn-nombre").value = /\d{4}/.test(ACTIVA.nombre) ? ACTIVA.nombre.replace(/\d{4}/, y => String(+y + 1)) : "Nueva campaña";
+    $("cn-inicio").value = String(+ACTIVA.inicio.slice(0, 4) + 1) + ACTIVA.inicio.slice(4);
+    $("cn-dias").value = ACTIVA.dias;
+    $("ci-frase").value = ""; validarFrase();
+    $("cierre-paso2").hidden = false;
+  }catch(e){ mostrarError("error-cierre", e.message); }
+  finally{ btn.disabled = false; btn.textContent = "Ver qué se va a archivar"; }
+});
+
+$("btn-cerrar").addEventListener("click", async () => {
+  mostrarError("error-cierre", "");
+  const btn = $("btn-cerrar"); btn.disabled = true;
+  $("estado-cierre").innerHTML = `<span class="dot live"></span>Archivando en Drive y verificando… no cierres esta ventana.`;
+  try{
+    const r = await sigmaApi("cerrar_campania", {
+      Nombre: $("ci-nombre").value, Fecha_Inicio: $("ci-inicio").value, Dias_Previstos: $("ci-dias").value,
+      Fecha_Cierre: $("ci-cierre").value, Observaciones: $("ci-obs").value,
+      Nuevo_Nombre: $("cn-nombre").value, Nuevo_Inicio: $("cn-inicio").value, Nuevos_Dias: $("cn-dias").value,
+      Confirmacion: $("ci-frase").value.trim()
+    });
+    const url = enlaceSeguro(r.archivo_url);
+    const total = Object.values(r.vaciadas || {}).reduce((s, n) => s + n, 0);
+    $("cierre-paso2").hidden = true;
+    $("cierre-resultado").innerHTML = `
+      <div class="aviso-ok">
+        <strong>Campaña cerrada.</strong> Se archivaron y vaciaron ${total.toLocaleString("es-AR")} filas.<br>
+        Archivo: ${url ? `<a href="${sigmaEsc(url)}" target="_blank" rel="noopener">${sigmaEsc(r.archivo_nombre)}</a>` : sigmaEsc(r.archivo_nombre)}
+        (carpeta «${sigmaEsc(r.carpeta)}» en tu Drive).<br>
+        Campaña en curso: <strong>${sigmaEsc(r.campania_nueva.Nombre)}</strong>, desde el ${fmtFechaISO(r.campania_nueva.Fecha_Inicio)}.
+        ${(r.errores || []).length ? `<br><strong>Atención:</strong> no se pudieron vaciar: ${sigmaEsc(r.errores.join("; "))}. Revisalas a mano en el Sheet.` : ""}
+      </div>`;
+    $("estado-cierre").textContent = "";
+    await cargarCampanias();
+  }catch(e){
+    $("estado-cierre").textContent = "";
+    mostrarError("error-cierre", e.message + " — Antes de reintentar, mirá «Campañas archivadas»: si la campaña ya figura ahí, el cierre se completó.");
+    await cargarCampanias().catch(() => {});
+    validarFrase();
+  }
+});
+
+/* ---------------- Comparación ---------------- */
+function listaComparable(){
+  return [{id: "__activa__", nombre: ACTIVA.nombre, inicio: ACTIVA.inicio, dias: ACTIVA.dias, cierre: "", activa: true}].concat(CERRADAS);
+}
+
+function pintarSelectorComparacion(){
+  $("resultado-comp").hidden = true;      // una comparación vieja no debe quedar a la vista tras un cierre o un cambio
+  const lista = listaComparable();
+  $("comp-vacio").hidden = CERRADAS.length > 0;
+  $("comp-contenido").hidden = CERRADAS.length === 0;
+  $("elegir-camp").innerHTML = lista.map((c, i) => `
+    <label><input type="checkbox" value="${sigmaEsc(c.id)}" ${i < 2 ? "checked" : ""}>
+    ${sigmaEsc(c.nombre)}${c.activa ? `<span class="chip-estado">en curso</span>` : ""}</label>`).join("");
+}
+
+function seleccionadas(){
+  const ids = [...document.querySelectorAll("#elegir-camp input:checked")].map(i => i.value);
+  return listaComparable().filter(c => ids.includes(c.id)).sort((a, b) => a.inicio.localeCompare(b.inicio));
+}
+
+async function datosDe(c){
+  if(c.activa){
+    const [p, a, o] = await Promise.all([
+      sigmaFetchTab("Paradas").catch(() => []), sigmaFetchTab("Analisis_Sector").catch(() => []),
+      sigmaFetchTab("Ordenes_de_Trabajo").catch(() => [])]);
+    return {datos: {Paradas: p, Analisis_Sector: a, Ordenes_de_Trabajo: o}, avisos: []};
+  }
+  if(cacheDatos[c.id]) return cacheDatos[c.id];
+  const r = await sigmaApi("leer_campania", {Campania_Id: c.id, tablas: ["Paradas", "Analisis_Sector", "Ordenes_de_Trabajo"]});
+  const avisos = [], datos = {};
+  ["Paradas", "Analisis_Sector", "Ordenes_de_Trabajo"].forEach(n => {
+    if(r[n] && r[n].ok) datos[n] = r[n].filas;
+    else { datos[n] = []; avisos.push(`${c.nombre}: no se pudo leer ${n}${r[n] && r[n].error ? " (" + r[n].error + ")" : ""}`); }
+  });
+  return (cacheDatos[c.id] = {datos, avisos});
+}
+
+$("btn-comparar").addEventListener("click", async () => {
+  mostrarError("error-comp", "");
+  const elegidas = seleccionadas();
+  if(elegidas.length < 2) return mostrarError("error-comp", "Elegí al menos 2 campañas para comparar.");
+  if(elegidas.length > 4) return mostrarError("error-comp", "Elegí como máximo 4 campañas.");
+  const btn = $("btn-comparar"); btn.disabled = true;
+  $("estado-comp").innerHTML = `<span class="dot live"></span>Leyendo datos…`;
+  try{
+    const cargadas = await Promise.all(elegidas.map(datosDe));
+    const ahora = new Date();
+    const res = elegidas.map((c, i) => resumirCampania(c, cargadas[i].datos, ahora));
+    const avisos = cargadas.flatMap(x => x.avisos);
+    pintarComparacion(res);
+    $("nota-comp").textContent = avisos.length ? "Atención: " + avisos.join(" · ") : "";
+    $("resultado-comp").hidden = false;
+  }catch(e){ mostrarError("error-comp", e.message); }
+  finally{ btn.disabled = false; $("estado-comp").textContent = ""; }
+});
+
+const FILAS_COMP = [
+  {grupo: "Producción"},
+  {k: "cana_total", mejor: "sube", t: "Caña neta molida", f: v => fmtNum(v, 0) + " Ton", delta: true},
+  {k: "cana_prom", mejor: "sube", t: "Molienda promedio por día", f: v => fmtNum(v, 0) + " Ton/día", delta: true},
+  {k: "cana_dias", t: "Días con parte cargado", f: v => fmtNum(v, 0)},
+  {k: "azucar_total", mejor: "sube", t: "Azúcar producida (fábrica)", f: v => fmtNum(v, 0) + " Ton", delta: true},
+  {k: "pol_prom", mejor: "baja", t: "Bagazo — Pol promedio", f: v => fmtNum(v, 2) + " %", delta: true},
+  {k: "hum_prom", t: "Bagazo — Humedad promedio", f: v => fmtNum(v, 2) + " %", delta: true},
+  {grupo: "Paradas"},
+  {k: "paradas_n", mejor: "baja", t: "Paradas registradas (todas las áreas)", f: v => fmtNum(v, 0), delta: true},
+  {k: "paradas_horas", mejor: "baja", t: "Horas perdidas (todas las áreas)", f: fmtDiasHoras, delta: true},
+  {k: "mec_n", mejor: "baja", t: "Paradas mecánicas", f: v => fmtNum(v, 0), delta: true},
+  {k: "mec_horas", mejor: "baja", t: "Horas de parada mecánica", f: fmtDiasHoras, delta: true},
+  {k: "mec_eficiencia", mejor: "sube", t: "Eficiencia mecánica", f: v => fmtNum(v, 1) + " %", delta: true},
+  {k: "mec_mtbf", mejor: "sube", t: "MTBF mecánico (tiempo entre paradas)", f: fmtDiasHoras, delta: true},
+  {k: "mec_prom_min", mejor: "baja", t: "Duración promedio de una parada mecánica", f: v => v == null ? "—" : fmtNum(v, 0) + " min", delta: true},
+  {grupo: "Mantenimiento"},
+  {k: "ordenes_total", t: "Órdenes de trabajo", f: v => fmtNum(v, 0), delta: true},
+  {k: "ordenes_correctivas_pct", mejor: "baja", t: "Órdenes correctivas", f: v => fmtNum(v, 1) + " %", delta: true}
+];
+
+function pintarComparacion(res){
+  const dos = res.length === 2;
+  let html = `<thead><tr><th>Indicador</th>${res.map(r => `<th class="num">${sigmaEsc(r.nombre)}</th>`).join("")}${dos ? `<th class="num" title="Cambio de la campaña más reciente respecto de la anterior. Verde: favorable. Rojo: desfavorable. Gris: sin juicio.">Variación</th>` : ""}</tr></thead><tbody>`;
+  html += `<tr><td>Período analizado</td>${res.map(r => `<td class="num">${r.ini.toLocaleDateString("es-AR")} → ${r.fin.toLocaleDateString("es-AR")}</td>`).join("")}${dos ? "<td></td>" : ""}</tr>`;
+  FILAS_COMP.forEach(fila => {
+    if(fila.grupo){ html += `<tr class="grupo"><td colspan="${res.length + 1 + (dos ? 1 : 0)}">${fila.grupo}</td></tr>`; return; }
+    let celdaVar = "";
+    if(dos){
+      const v = fila.delta ? variacionPct(res[0][fila.k], res[1][fila.k]) : null;
+      if(v == null) celdaVar = `<td class="num">—</td>`;
+      else{
+        const casiIgual = Math.abs(v) < 0.05;
+        // verde = cambio favorable, rojo = desfavorable, gris = sin juicio (o sin cambio)
+        const clase = casiIgual || !fila.mejor ? "var-neu" : ((v > 0) === (fila.mejor === "sube") ? "var-pos" : "var-neg");
+        celdaVar = `<td class="num ${clase}">${casiIgual ? "0" : (v > 0 ? "+" : "") + fmtNum(v, 1)} %</td>`;
+      }
+    }
+    html += `<tr><td>${fila.t}</td>${res.map(r => `<td class="num">${fila.f(r[fila.k])}</td>`).join("")}${celdaVar}</tr>`;
+  });
+  $("tabla-comp").innerHTML = html + "</tbody>";
+
+  const color = i => SIGMA_CHART_PALETTE[i % SIGMA_CHART_PALETTE.length];
+  const ejes = () => ({x: Object.assign({}, sigmaChartAxis()), y: Object.assign({beginAtZero: true}, sigmaChartAxis())});
+  Object.values(graficos).forEach(g => g && g.destroy()); graficos = {};
+
+  // Caña acumulada por día de campaña
+  const maxDia = Math.max(1, ...res.map(r => r.acumulado.length ? r.acumulado[r.acumulado.length - 1].dia : 0));
+  graficos.cana = new Chart($("ch-cana"), {
+    type: "line",
+    data: {labels: Array.from({length: maxDia}, (_, i) => i + 1), datasets: res.map((r, i) => {
+      let k = 0, ultimo = null;
+      const ult = r.acumulado.length ? r.acumulado[r.acumulado.length - 1].dia : 0;
+      const datos = Array.from({length: maxDia}, (_, j) => {
+        const dia = j + 1;
+        while(k < r.acumulado.length && r.acumulado[k].dia <= dia){ ultimo = r.acumulado[k].ton; k++; }
+        return dia <= ult ? +(ultimo ?? 0).toFixed(1) : null;   // antes del primer parte: 0 acumulado
+      });
+      return {label: r.nombre, data: datos, borderColor: color(i), backgroundColor: color(i), borderWidth: 2.2, pointRadius: 0, tension: .25, spanGaps: false};
+    })},
+    options: {maintainAspectRatio: false, interaction: {mode: "index", intersect: false}, plugins: {legend: sigmaChartLegend()}, scales: ejes()}
+  });
+
+  // Horas de parada por sector
+  const sectores = [];
+  res.forEach(r => r.sectores.forEach(s => { if(!sectores.includes(s.etiqueta)) sectores.push(s.etiqueta); }));
+  sectores.sort((a, b) => res.reduce((s, r) => s + horasDe(r, b), 0) - res.reduce((s, r) => s + horasDe(r, a), 0));
+  graficos.sectores = new Chart($("ch-sectores"), {
+    type: "bar",
+    data: {labels: sectores, datasets: res.map((r, i) => ({label: r.nombre, data: sectores.map(s => +horasDe(r, s).toFixed(1)), backgroundColor: color(i), borderRadius: 4}))},
+    options: {maintainAspectRatio: false, plugins: {legend: sigmaChartLegend()}, scales: ejes()}
+  });
+
+  // Órdenes por tipo
+  const tipos = [["preventivo", "Preventivo"], ["predictivo", "Predictivo"], ["correctivo", "Correctivo"], ["otro", "Otro"]];
+  graficos.ordenes = new Chart($("ch-ordenes"), {
+    type: "bar",
+    data: {labels: tipos.map(t => t[1]), datasets: res.map((r, i) => ({label: r.nombre, data: tipos.map(t => r.ordenes[t[0]]), backgroundColor: color(i), borderRadius: 4}))},
+    options: {maintainAspectRatio: false, plugins: {legend: sigmaChartLegend()}, scales: ejes()}
+  });
+
+  // Eficiencia mecánica
+  graficos.eficiencia = new Chart($("ch-eficiencia"), {
+    type: "bar",
+    data: {labels: res.map(r => r.nombre), datasets: [{label: "Eficiencia mecánica (%)", data: res.map(r => +r.mec_eficiencia.toFixed(1)),
+      backgroundColor: res.map((_, i) => color(i)), borderRadius: 6}]},
+    options: {maintainAspectRatio: false, plugins: {legend: {display: false}}, scales: {x: sigmaChartAxis(), y: Object.assign({min: 0, max: 100}, sigmaChartAxis())}}
+  });
+}
+function horasDe(r, etiqueta){ const s = r.sectores.find(x => x.etiqueta === etiqueta); return s ? s.horas : 0; }
+
+cargarCampanias().catch(e => sigmaToast("No se pudieron cargar las campañas: " + e.message));
+</script>
+</body>
+</html>
