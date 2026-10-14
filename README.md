@@ -147,6 +147,24 @@ del `<script>` de `analisis.html` (`METRICAS`, `procesarHoja1`,
 El script usa `LockService` para que dos escrituras simultáneas (dos
 operarios cargando al mismo tiempo) no se pisen entre sí.
 
+### Cierre de campaña (`campanias.html`)
+
+Solo el **admin** puede cerrar; **admin y jefe** pueden ver el historial y comparar.
+
+**Qué hace al cerrar:**
+1. Copia el Google Sheet completo en Drive (carpeta **"SIGMA - Campañas archivadas"**). A la copia se le quita la pestaña `Usuarios` (contraseñas y sesiones).
+2. Verifica que cada pestaña operativa de la copia tenga la misma cantidad de filas que el original. Si algo no coincide, borra la copia y **no vacía nada**.
+3. Registra la campaña cerrada en la pestaña `Campanias` y crea la nueva como "Activa".
+4. Vacía (conserva encabezados y formato): `Ordenes_de_Trabajo`, `Mantenimientos`, `Mediciones`, `Paradas`, `Analisis_Sector`, `Objetivos`, `Gestion_Tareas`, `Avances_Orden`, `Observaciones`, `Imagenes`.
+
+**No se vacía:** `Equipos`, `Repuestos`, `Variables`, `Precios`, `Reparaciones_Programadas`, `Usuarios`, `Campanias`. Las fotos quedan en Drive.
+
+Se exige escribir la frase **CERRAR CAMPAÑA** (validada también en el servidor).
+
+**Comparar:** en la misma página se eligen 2 a 4 campañas archivadas (o la actual) y se comparan caña acumulada, horas de paradas por sector, órdenes por tipo y eficiencia mecánica.
+
+**Despliegue:** pegar el nuevo `Code.gs`, generar **nueva versión** de la implementación, subir los HTML/JS, recargar con Ctrl+F5 y volver a iniciar sesión (aparece "Campañas" en el menú). La pestaña `Campanias` se crea sola.
+
 ## Pendiente para dejarlo 100% operativo
 
 - [ ] Crear la pestaña `Avances_Orden` (columnas en la sección 2) y

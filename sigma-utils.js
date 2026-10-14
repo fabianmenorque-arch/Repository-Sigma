@@ -403,6 +403,34 @@ function sigmaMesActual(){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
+/** Normaliza una fecha de texto a "AAAA-MM-DD". Acepta AAAA-MM-DD y D/M/AAAA
+    (por si alguien escribe la fecha a mano en el Sheet). Devuelve "" si no la entiende. */
+function sigmaFechaAISO(texto){
+  const s = String(texto ?? "").trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  return "";
+}
+
+/** Campaña en curso. Sale de la pestaña "Campanias" (fila con Estado = Activa), que se
+    administra desde la pantalla Campañas. Si esa pestaña todavía no existe (antes del primer
+    cierre), se usa la configuración fija de SIGMA_CONFIG, así nada cambia hasta que se use. */
+async function sigmaCampaniaActiva(){
+  try{
+    const filas = await sigmaFetchTab("Campanias");
+    const act = filas.filter(f => f.Estado === "Activa").pop();
+    const inicio = act ? sigmaFechaAISO(act.Fecha_Inicio) : "";
+    const dias = act ? parseInt(act.Dias_Previstos, 10) : NaN;
+    if(act && inicio && dias > 0){
+      return {nombre: act.Nombre || "Campaña", inicio, dias, id: act.Campania_Id || "", desdeHoja: true};
+    }
+  }catch(e){ /* pestaña inexistente o sin permiso: se usa la configuración fija */ }
+  return {nombre: "Zafra " + SIGMA_CONFIG.ZAFRA_INICIO.slice(0,4), inicio: SIGMA_CONFIG.ZAFRA_INICIO,
+          dias: SIGMA_CONFIG.ZAFRA_DIAS_TOTALES, id: "", desdeHoja: false};
+}
+
 /* ---------------------------------------------------------------
    5. UI HELPERS
    --------------------------------------------------------------- */
@@ -421,7 +449,7 @@ function sigmaToast(msg){
   setTimeout(() => el.remove(), 3200);
 }
 
-/** Barra de navegación compartida (sidebar). activePage: "dashboard"|"ordenes"|"equipos"|"qr"|"informes"|"alta"|"gestion"|"analisis"|"repuestos"|"novedades"|"bombas"|"usuarios"|"cuenta"|"mis_equipos"|"observaciones" */
+/** Barra de navegación compartida (sidebar). activePage: "dashboard"|"ordenes"|"equipos"|"qr"|"informes"|"alta"|"gestion"|"analisis"|"repuestos"|"novedades"|"bombas"|"usuarios"|"cuenta"|"mis_equipos"|"observaciones"|"campanias" */
 function sigmaRenderNav(activePage, basePath = ""){
   sigmaSetFavicon(basePath);
 
@@ -451,7 +479,8 @@ function sigmaRenderNav(activePage, basePath = ""){
     bombas: '<svg viewBox="0 0 24 24"><path d="M12 3c3 4 6 7.2 6 10.5a6 6 0 1 1-12 0C6 10.2 9 7 12 3z"/></svg>',
     mis_equipos: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     observaciones: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4"/></svg>',
-    usuarios: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.6a3.3 3.3 0 0 1 0 6.4M18 14.2c2 .7 3.4 2.6 3.4 5.3"/></svg>'
+    usuarios: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.6a3.3 3.3 0 0 1 0 6.4M18 14.2c2 .7 3.4 2.6 3.4 5.3"/></svg>',
+    campanias: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.2"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M9 15.2l2.2 2.2 4-4.4"/></svg>'
   };
 
   const links = [
@@ -464,6 +493,7 @@ function sigmaRenderNav(activePage, basePath = ""){
     {id:"informes", href:`${basePath}informes.html`, label:"Informes"},
     {id:"observaciones", href:`${basePath}observaciones.html`, label:"Observaciones"},
     {id:"analisis", href:`${basePath}analisis.html`, label:"Análisis"},
+    {id:"campanias", href:`${basePath}campanias.html`, label:"Campañas"},
     {id:"repuestos", href:`${basePath}repuestos.html`, label:"Repuestos"},
     {id:"bombas", href:`${basePath}simulador_bombas.html`, label:"Simulador de bombas"},
     {id:"alta", href:`${basePath}alta_nuevo_equipo.html`, label:"Alta de equipo"},

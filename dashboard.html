@@ -566,10 +566,18 @@ setInterval(async () => {
 /* =========================================================
    SIGMA ANÁLISIS — desempeño de campaña (Paradas + Laboratorio)
    ========================================================= */
-const ZAFRA_INICIO = new Date(SIGMA_CONFIG.ZAFRA_INICIO + "T00:00:00");
-const ZAFRA_DIAS = SIGMA_CONFIG.ZAFRA_DIAS_TOTALES;
-const ZAFRA_FIN_ESTIMADA = new Date(ZAFRA_INICIO);
-ZAFRA_FIN_ESTIMADA.setDate(ZAFRA_FIN_ESTIMADA.getDate() + ZAFRA_DIAS - 1);
+/* Campaña vigente. Arranca con la configuración fija de sigma-utils.js y, apenas
+   llegan los datos, se reemplaza por la campaña "Activa" de la pestaña Campanias
+   (la que administra el Administrador desde la pantalla Campañas). */
+let ZAFRA_INICIO, ZAFRA_DIAS, ZAFRA_FIN_ESTIMADA, ZAFRA_NOMBRE;
+function aplicarCampania(c){
+  ZAFRA_INICIO = new Date(c.inicio + "T00:00:00");
+  ZAFRA_DIAS = c.dias;
+  ZAFRA_NOMBRE = c.nombre;
+  ZAFRA_FIN_ESTIMADA = new Date(ZAFRA_INICIO);
+  ZAFRA_FIN_ESTIMADA.setDate(ZAFRA_FIN_ESTIMADA.getDate() + ZAFRA_DIAS - 1);
+}
+aplicarCampania({nombre: "Zafra " + SIGMA_CONFIG.ZAFRA_INICIO.slice(0,4), inicio: SIGMA_CONFIG.ZAFRA_INICIO, dias: SIGMA_CONFIG.ZAFRA_DIAS_TOTALES});
 
 let paradasTodas = [];
 let objetivosTodos = [];
@@ -716,7 +724,7 @@ function actualizarCampania(){
   document.getElementById("kpi-avance-sub").textContent = `${pctAvance.toFixed(0)}% de la campaña`;
   document.getElementById("barra-avance").style.width = Math.min(100,pctAvance) + "%";
   document.getElementById("avance-detalle").textContent =
-    `Inicio: ${ZAFRA_INICIO.toLocaleDateString("es-AR")} · Fin estimado (130 días corridos): ${ZAFRA_FIN_ESTIMADA.toLocaleDateString("es-AR")}`;
+    `${ZAFRA_NOMBRE} · Inicio: ${ZAFRA_INICIO.toLocaleDateString("es-AR")} · Fin estimado (${ZAFRA_DIAS} días corridos): ${ZAFRA_FIN_ESTIMADA.toLocaleDateString("es-AR")}`;
 
   const finPeriodo = hoy < ZAFRA_FIN_ESTIMADA ? hoy : ZAFRA_FIN_ESTIMADA;
   const horasCampania = Math.max(1, (finPeriodo - ZAFRA_INICIO)/36e5);
@@ -1136,11 +1144,15 @@ document.getElementById("mes-analisis").addEventListener("change", ()=>{ actuali
 async function cargarSigmaAnalisis(){
   poblarSelectorMes();
   try{
-    const [paradasRaw, objetivosRaw, analisisRaw] = await Promise.all([
+    // Todo se pide junto (una sola llamada al servidor): la campaña activa y los datos.
+    const [campania, paradasRaw, objetivosRaw, analisisRaw] = await Promise.all([
+      sigmaCampaniaActiva(),
       sigmaFetchTab("Paradas").catch(()=>[]),
       sigmaFetchTab("Objetivos").catch(()=>[]),
       sigmaFetchTab("Analisis_Sector").catch(()=>[])
     ]);
+    aplicarCampania(campania);
+    poblarSelectorMes();
     paradasTodas = paradasRaw.map(r => ({
       fecha: toDateDDMMYYYY(r.Fecha),
       horaParada: r.Hora_Parada,
