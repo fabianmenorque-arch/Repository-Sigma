@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-10-v13-operario";
+const VERSION_SCRIPT = "2026-10-13-v14-cierre-campania";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -52,7 +52,8 @@ const SHEETS = {
   PARADAS: "Paradas",
   OBJETIVOS: "Objetivos",
   PRECIOS: "Precios",
-  OBSERVACIONES: "Observaciones"
+  OBSERVACIONES: "Observaciones",
+  CAMPANIAS: "Campanias"
 };
 
 /* ============================================================
@@ -79,6 +80,8 @@ function doPost(e) {
 
     // Lecturas: sin lock, filtradas por rol.
     if (accion === "leer") return ok_(leerTablas_(usuario, body));
+    // Lectura de una campaña ya archivada (para comparar años): solo Administrador y Jefe.
+    if (accion === "leer_campania") return ok_(leerCampania_(usuario, body));
 
     // Escrituras y administración de usuarios: una a la vez (dos operarios simultáneos).
     return withLock_(() => ok_(despachar_(usuario, accion, body)));
@@ -114,6 +117,16 @@ function despachar_(usuario, accion, body) {
     case "asignar_equipos":
       exigirAdmin_(usuario);
       return asignarEquipos_(body);
+    // Campañas: solo el Administrador puede ver la vista previa, cerrar o editar la campaña activa.
+    case "vista_previa_cierre":
+      exigirAdmin_(usuario, "Solo un Administrador puede cerrar una campaña.");
+      return vistaPreviaCierre_();
+    case "cerrar_campania":
+      exigirAdmin_(usuario, "Solo un Administrador puede cerrar una campaña.");
+      return cerrarCampania_(usuario, body);
+    case "actualizar_campania_activa":
+      exigirAdmin_(usuario, "Solo un Administrador puede modificar la campaña activa.");
+      return actualizarCampaniaActiva_(usuario, body);
   }
 
   if (ACCIONES_ESCRITURA.indexOf(accion) === -1) throw new Error("Acción desconocida: " + accion);
@@ -498,7 +511,7 @@ const ROLES = {
 
 // Pestañas de datos del sistema (la hoja "Usuarios" NO está en ninguna lista: nadie puede leerla desde la web)
 const PESTANAS_OPERATIVAS = ["Equipos", "Mantenimientos", "Ordenes_de_Trabajo", "Imagenes", "Variables",
-  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones"];
+  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones", "Campanias"];
 const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios"]);
 
 const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
@@ -516,13 +529,13 @@ const PERMISOS = {
   admin: {
     leer: PESTANAS_TODAS,
     escribir: ACCIONES_ESCRITURA,
-    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion", "usuarios"]),
+    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion", "usuarios", "campanias"]),
     inicio: "dashboard.html"
   },
   jefe: {
     leer: PESTANAS_TODAS,
     escribir: ACCIONES_ESCRITURA,
-    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion"]),
+    paginas: PAGINAS_BASE.concat(["analisis", "alta", "gestion", "campanias"]),
     inicio: "dashboard.html"
   },
   tecnico: {
@@ -562,8 +575,8 @@ function errorSesion_(mensaje) {
   return e;
 }
 
-function exigirAdmin_(usuario) {
-  if (usuario.Rol !== "admin") throw errorPermiso_("Solo un Administrador puede gestionar usuarios.");
+function exigirAdmin_(usuario, mensaje) {
+  if (usuario.Rol !== "admin") throw errorPermiso_(mensaje || "Solo un Administrador puede gestionar usuarios.");
 }
 
 /* ---------------- Criptografía ---------------- */
@@ -902,8 +915,15 @@ function leerTablas_(usuario, body) {
 }
 
 /** Filas de una pestaña como objetos {columna: texto}, igual que el viejo parser de CSV. */
-function filasDeHoja_(nombre) {
-  const sheet = nombre === SHEETS.OBSERVACIONES ? hojaObservaciones_() : hoja_(nombre);
+function filasDeHoja_(nombre, ss) {
+  // Con "ss" (un Sheet distinto del activo) se lee de una campaña archivada.
+  let sheet;
+  if (ss) {
+    sheet = ss.getSheetByName(nombre);
+    if (!sheet) throw new Error("La campaña archivada no tiene la pestaña '" + nombre + "'.");
+  } else {
+    sheet = nombre === SHEETS.OBSERVACIONES ? hojaObservaciones_() : hoja_(nombre);
+  }
   if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) return [];
   const vals = sheet.getDataRange().getDisplayValues();
   const h = vals.shift().map(x => String(x).trim());
@@ -1059,6 +1079,247 @@ function resetearClaveAdministrador() {
   guardarCamposUsuario_(u._fila, {Salt: salt, Clave_Hash: hashClave_(clave, salt), Debe_Cambiar: "SI", Sesion: nuevaSesion_(), Activo: "SI", Rol: "admin"});
   CacheService.getScriptCache().remove("SIGMA_FALLOS_" + ADMIN_INICIAL_USUARIO);
   Logger.log("CLAVE RESTABLECIDA\nUsuario: " + ADMIN_INICIAL_USUARIO + "\nClave temporal: " + clave);
+}
+
+/* ============================================================
+   CAMPAÑAS — cierre de campaña, archivo en Drive y consulta de años anteriores
+   ------------------------------------------------------------
+   Pestaña "Campanias" (se crea sola al usarla por primera vez):
+     Campania_Id | Nombre | Fecha_Inicio | Dias_Previstos | Estado | Fecha_Cierre |
+     Archivo_Id | Archivo_URL | Cerrada_Por | Observaciones
+   Estado: "Activa" (una sola) o "Cerrada". Fechas en texto AAAA-MM-DD.
+
+   CIERRE (solo Administrador), en este orden:
+     1. Copia completa del Sheet en la carpeta de Drive "SIGMA - Campañas archivadas".
+        La copia NO incluye la pestaña "Usuarios" (contraseñas y sesiones).
+     2. Verifica que la copia tenga las mismas filas que el original, pestaña por pestaña.
+        Si algo no coincide, borra la copia y SE CANCELA el cierre sin tocar ningún dato.
+     3. Registra la campaña como "Cerrada" y crea la nueva como "Activa".
+     4. Vacía las pestañas operativas (se conservan los encabezados y el formato).
+   NO se tocan: Equipos, Repuestos, Variables, Precios, Reparaciones_Programadas,
+   Usuarios ni Campanias. Las fotos siguen en Drive (solo se vacía su listado).
+   ============================================================ */
+
+const COLUMNAS_CAMPANIAS = ["Campania_Id", "Nombre", "Fecha_Inicio", "Dias_Previstos", "Estado",
+  "Fecha_Cierre", "Archivo_Id", "Archivo_URL", "Cerrada_Por", "Observaciones"];
+
+// Pestañas que se archivan y se vacían al cerrar la campaña.
+const PESTANAS_CIERRE = ["Ordenes_de_Trabajo", "Mantenimientos", "Mediciones", "Paradas", "Analisis_Sector",
+  "Objetivos", "Gestion_Tareas", "Avances_Orden", "Observaciones", "Imagenes"];
+
+// Pestañas que se pueden consultar de una campaña archivada (comparación entre años).
+const PESTANAS_COMPARABLES = ["Paradas", "Analisis_Sector", "Objetivos", "Ordenes_de_Trabajo", "Mantenimientos"];
+
+const FRASE_CIERRE = "CERRAR CAMPAÑA";
+const CARPETA_CAMPANIAS = "SIGMA - Campañas archivadas";
+
+/** Pestaña "Campanias"; si no existe se crea con las columnas en formato TEXTO
+ *  (así Sheets no convierte "2026-05-30" en una fecha con otro formato). */
+function hojaCampanias_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let s = ss.getSheetByName(SHEETS.CAMPANIAS);
+  if (!s) {
+    s = ss.insertSheet(SHEETS.CAMPANIAS);
+    s.getRange(1, 1, s.getMaxRows(), COLUMNAS_CAMPANIAS.length).setNumberFormat("@");
+    s.appendRow(COLUMNAS_CAMPANIAS);
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function campaniasDeHoja_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName(SHEETS.CAMPANIAS) ? filasDeHoja_(SHEETS.CAMPANIAS) : [];
+}
+
+function fechaISO_(valor, etiqueta) {
+  const s = String(valor || "").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  if (!m || d.getMonth() !== +m[2] - 1) {
+    throw new Error("Fecha no válida en " + etiqueta + ". Usá el formato AAAA-MM-DD (ej: 2026-10-13).");
+  }
+  return s;
+}
+
+function textoRequerido_(valor, etiqueta, max) {
+  const s = String(valor || "").trim();
+  if (!s) throw new Error("Falta completar: " + etiqueta + ".");
+  if (s.length > (max || 80)) throw new Error(etiqueta + " es demasiado largo (máximo " + (max || 80) + " caracteres).");
+  return s;
+}
+
+function diasPrevistos_(valor) {
+  const n = Math.round(Number(valor));
+  if (!isFinite(n) || n < 1 || n > 400) throw new Error("Los días previstos de la campaña deben ser un número entre 1 y 400.");
+  return n;
+}
+
+/** Cantidad de filas de datos (sin encabezado) de cada pestaña que se archivaría y vaciaría. */
+function contarPestanasCierre_(ss) {
+  return PESTANAS_CIERRE.map(n => {
+    const s = ss.getSheetByName(n);
+    return {pestana: n, existe: !!s, filas: s ? Math.max(s.getLastRow() - 1, 0) : 0};
+  });
+}
+
+/** Solo lectura: qué se va a archivar y vaciar. No modifica nada. */
+function vistaPreviaCierre_() {
+  const detalle = contarPestanasCierre_(SpreadsheetApp.getActiveSpreadsheet());
+  return {
+    detalle: detalle,
+    total_filas: detalle.reduce((s, d) => s + d.filas, 0),
+    se_conserva: ["Equipos", "Repuestos", "Variables", "Precios", "Reparaciones_Programadas", "Usuarios", "Campanias"],
+    frase_confirmacion: FRASE_CIERRE
+  };
+}
+
+function carpetaCampaniasSigma_() {
+  const carpetas = DriveApp.getFoldersByName(CARPETA_CAMPANIAS);
+  return carpetas.hasNext() ? carpetas.next() : DriveApp.createFolder(CARPETA_CAMPANIAS);
+}
+
+/** Vacía una pestaña conservando encabezados, formato y validaciones. Devuelve las filas borradas. */
+function vaciarPestana_(sheet) {
+  const n = sheet.getLastRow() - 1;
+  if (n < 1) return 0;
+  sheet.getRange(2, 1, n, Math.max(sheet.getLastColumn(), 1)).clearContent();
+  return n;
+}
+
+function cerrarCampania_(usuario, body) {
+  sanitizarCuerpo_(body);
+  if (String(body.Confirmacion || "").trim() !== FRASE_CIERRE) {
+    throw new Error("Falta la confirmación escrita. Escribí exactamente: " + FRASE_CIERRE);
+  }
+
+  // --- Validar TODO antes de tocar nada ---
+  const nombre = textoRequerido_(body.Nombre, "el nombre de la campaña que se cierra");
+  const inicio = fechaISO_(body.Fecha_Inicio, "el inicio de la campaña que se cierra");
+  const cierre = fechaISO_(body.Fecha_Cierre, "la fecha de cierre");
+  if (cierre < inicio) throw new Error("La fecha de cierre no puede ser anterior al inicio de la campaña.");
+  const dias = diasPrevistos_(body.Dias_Previstos);
+  const nuevoNombre = textoRequerido_(body.Nuevo_Nombre, "el nombre de la nueva campaña");
+  const nuevoInicio = fechaISO_(body.Nuevo_Inicio, "el inicio de la nueva campaña");
+  if (nuevoInicio < cierre) throw new Error("La nueva campaña no puede empezar antes de la fecha de cierre.");
+  const nuevosDias = diasPrevistos_(body.Nuevos_Dias);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const autor = usuario.Nombre || usuario.Usuario;
+  SpreadsheetApp.flush();
+  const antes = contarPestanasCierre_(ss);
+
+  // --- 1) Copia completa en Drive ---
+  const nombreArchivo = "SIGMA — " + nombre + " (cerrada el " + cierre + ")";
+  const copia = DriveApp.getFileById(ss.getId()).makeCopy(nombreArchivo, carpetaCampaniasSigma_());
+  let copiaSs;
+  try {
+    copiaSs = SpreadsheetApp.openById(copia.getId());
+
+    // La copia no debe llevar contraseñas ni sesiones.
+    const hojaUsr = copiaSs.getSheetByName(HOJA_USUARIOS);
+    if (hojaUsr && copiaSs.getSheets().length > 1) copiaSs.deleteSheet(hojaUsr);
+    SpreadsheetApp.flush();
+
+    // --- 2) Verificar que la copia coincide con el original ---
+    const distintas = [];
+    antes.forEach(d => {
+      if (!d.existe) return;
+      const c = copiaSs.getSheetByName(d.pestana);
+      const filasCopia = c ? Math.max(c.getLastRow() - 1, 0) : -1;
+      if (filasCopia !== d.filas) distintas.push(d.pestana + " (original " + d.filas + ", copia " + filasCopia + ")");
+    });
+    if (distintas.length) throw new Error("La copia de seguridad no coincide con los datos: " + distintas.join("; "));
+    if (copiaSs.getSheetByName(HOJA_USUARIOS)) throw new Error("La copia todavía contiene la pestaña de usuarios.");
+  } catch (err) {
+    copia.setTrashed(true);
+    throw new Error("Se canceló el cierre y NO se borró ningún dato. Motivo: " + err.message);
+  }
+
+  // --- 3) Registrar la campaña cerrada y crear la nueva activa ---
+  const hojaC = hojaCampanias_();
+  const cerrada = {
+    Nombre: nombre, Fecha_Inicio: inicio, Dias_Previstos: String(dias), Estado: "Cerrada", Fecha_Cierre: cierre,
+    Archivo_Id: copia.getId(), Archivo_URL: copia.getUrl(), Cerrada_Por: autor,
+    Observaciones: String(body.Observaciones || "").trim()
+  };
+  const filaActiva = buscarFila_(hojaC, "Estado", "Activa");
+  if (filaActiva === -1) {
+    cerrada.Campania_Id = "CAMP-" + new Date().getTime();
+    agregarFilaPorEncabezados_(hojaC, cerrada);
+  } else {
+    actualizarFila_(hojaC, filaActiva, cerrada);
+  }
+  const nueva = {
+    Campania_Id: "CAMP-" + (new Date().getTime() + 1), Nombre: nuevoNombre, Fecha_Inicio: nuevoInicio,
+    Dias_Previstos: String(nuevosDias), Estado: "Activa", Fecha_Cierre: "", Archivo_Id: "", Archivo_URL: "",
+    Cerrada_Por: "", Observaciones: ""
+  };
+  agregarFilaPorEncabezados_(hojaC, nueva);
+
+  // --- 4) Vaciar las pestañas operativas (una falla no frena a las demás) ---
+  const vaciadas = {}, errores = [];
+  PESTANAS_CIERRE.forEach(n => {
+    const s = ss.getSheetByName(n);
+    if (!s) return;
+    try { vaciadas[n] = vaciarPestana_(s); }
+    catch (e) { errores.push(n + ": " + e.message); }
+  });
+  SpreadsheetApp.flush();
+  Logger.log("cerrarCampania_ — " + nombre + " cerrada por " + autor + " | archivo: " + copia.getUrl() +
+    " | vaciadas: " + JSON.stringify(vaciadas) + " | errores: " + JSON.stringify(errores));
+
+  return {
+    accion: "cerrar_campania", archivo_url: copia.getUrl(), archivo_nombre: nombreArchivo,
+    carpeta: CARPETA_CAMPANIAS, vaciadas: vaciadas, errores: errores,
+    campania_nueva: {Nombre: nuevoNombre, Fecha_Inicio: nuevoInicio, Dias_Previstos: nuevosDias}
+  };
+}
+
+/** Cambia nombre, inicio y duración de la campaña activa (la crea si todavía no existe). */
+function actualizarCampaniaActiva_(usuario, body) {
+  sanitizarCuerpo_(body);
+  const datos = {
+    Nombre: textoRequerido_(body.Nombre, "el nombre de la campaña"),
+    Fecha_Inicio: fechaISO_(body.Fecha_Inicio, "el inicio de la campaña"),
+    Dias_Previstos: String(diasPrevistos_(body.Dias_Previstos))
+  };
+  const hojaC = hojaCampanias_();
+  const fila = buscarFila_(hojaC, "Estado", "Activa");
+  if (fila === -1) {
+    datos.Campania_Id = "CAMP-" + new Date().getTime();
+    datos.Estado = "Activa";
+    agregarFilaPorEncabezados_(hojaC, datos);
+  } else {
+    actualizarFila_(hojaC, fila, datos);
+  }
+  return {accion: "actualizar_campania_activa", creada: fila === -1};
+}
+
+/** Lee pestañas de una campaña archivada. Solo Administrador y Jefe; solo pestañas permitidas;
+ *  el archivo se busca por Campania_Id en la pestaña "Campanias" (nunca por un ID enviado desde el navegador). */
+function leerCampania_(usuario, body) {
+  if (usuario.Rol !== "admin" && usuario.Rol !== "jefe") {
+    throw errorPermiso_("Tu rol no puede consultar campañas anteriores.");
+  }
+  const id = String(body.Campania_Id || "").trim();
+  const fila = campaniasDeHoja_().filter(c => c.Campania_Id === id && c.Estado === "Cerrada")[0];
+  if (!fila || !fila.Archivo_Id) throw new Error("No se encontró esa campaña archivada.");
+
+  let ss;
+  try { ss = SpreadsheetApp.openById(fila.Archivo_Id); }
+  catch (e) { throw new Error("No se pudo abrir el archivo de la campaña '" + fila.Nombre + "'. ¿Fue movido o eliminado de Drive?"); }
+
+  const salida = {};
+  (Array.isArray(body.tablas) ? body.tablas : []).slice(0, 10).forEach(n => {
+    try {
+      if (PESTANAS_COMPARABLES.indexOf(n) === -1) throw errorPermiso_("La pestaña '" + n + "' no se puede consultar.");
+      salida[n] = {ok: true, filas: filasDeHoja_(n, ss)};
+    } catch (err) {
+      salida[n] = {ok: false, error: err.message};
+    }
+  });
+  return salida;
 }
 
 /* ============================================================
