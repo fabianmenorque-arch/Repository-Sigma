@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-14-v15-fix-rango-vacio";
+const VERSION_SCRIPT = "2026-10-14-v16-seguridad";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -218,7 +218,7 @@ function actualizarOrden_(body) {
   Object.keys(body).forEach(clave => {
     if (clave === "Nro_Orden") return;
     const col = headers.indexOf(clave);
-    if (col !== -1) sheet.getRange(fila, col + 1).setValue(body[clave]);
+    if (col !== -1) sheet.getRange(fila, col + 1).setValue(seguro_(body[clave]));
   });
 
   const nuevoEstado = body.Estado || estadoAnterior;
@@ -266,10 +266,33 @@ function registrarMedicion_(body) {
  * equipo (Nro_Orden y Momento quedan vacíos en ese caso).
  * body: { Codigo_Equipo, Nro_Orden, Momento, NombreArchivo, MimeType, DatosBase64 }
  */
+const FOTO_MAX_BYTES = 12 * 1024 * 1024;   // 12 MB por foto
+
+/** Detecta el tipo REAL de imagen mirando los primeros bytes (no se confía en lo que diga el navegador). */
+function tipoImagen_(bytes) {
+  const b = bytes.map(x => x & 0xFF);
+  if (b.length > 12 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return {mime: "image/jpeg", ext: "jpg"};
+  if (b.length > 12 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return {mime: "image/png", ext: "png"};
+  if (b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+      b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return {mime: "image/webp", ext: "webp"};
+  return null;
+}
+
 function subirImagen_(body) {
+  const datos = String(body.DatosBase64 || "");
+  if (!datos) throw new Error("No llegó ninguna imagen.");
+  if (datos.length > FOTO_MAX_BYTES * 1.4) throw new Error("La foto es demasiado grande (máximo 12 MB). Sacala con menor resolución o recortala.");
+  let bytes;
+  try { bytes = Utilities.base64Decode(datos); }
+  catch (e) { throw new Error("El archivo de la foto está dañado."); }
+  if (bytes.length > FOTO_MAX_BYTES) throw new Error("La foto es demasiado grande (máximo 12 MB). Sacala con menor resolución o recortala.");
+  const tipo = tipoImagen_(bytes);
+  if (!tipo) throw new Error("Solo se aceptan fotos JPG, PNG o WEBP.");
+
+  // El nombre lo genera el servidor: nunca se usa el que manda el navegador.
+  const nombre = "sigma_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000) + "." + tipo.ext;
   const carpeta = carpetaImagenesSigma_();
-  const bytes = Utilities.base64Decode(body.DatosBase64);
-  const blob = Utilities.newBlob(bytes, body.MimeType || "image/jpeg", body.NombreArchivo || ("sigma_" + new Date().getTime() + ".jpg"));
+  const blob = Utilities.newBlob(bytes, tipo.mime, nombre);
   const archivo = carpeta.createFile(blob);
   archivo.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
@@ -315,7 +338,7 @@ function actualizarTareaGestion_(body) {
   Object.keys(body).forEach(clave => {
     if (clave === "Nro_Tarea") return;
     const col = headers.indexOf(clave);
-    if (col !== -1) sheet.getRange(fila, col + 1).setValue(body[clave]);
+    if (col !== -1) sheet.getRange(fila, col + 1).setValue(seguro_(body[clave]));
   });
 
   return {accion: "actualizar_tarea_gestion", Nro_Tarea: body.Nro_Tarea};
@@ -370,7 +393,7 @@ function crearParada_(body) {
     const headers = encabezados_(sheet);
     Object.keys(body).forEach(clave => {
       const col = headers.indexOf(clave);
-      if (col !== -1) sheet.getRange(fila, col + 1).setValue(body[clave]);
+      if (col !== -1) sheet.getRange(fila, col + 1).setValue(seguro_(body[clave]));
     });
     Logger.log("crearParada_ — fila " + fila + " actualizada.");
   }
@@ -394,7 +417,7 @@ function guardarObjetivo_(body) {
     const headers = encabezados_(sheet);
     Object.keys(body).forEach(clave => {
       const col = headers.indexOf(clave);
-      if (col !== -1) sheet.getRange(fila, col + 1).setValue(body[clave]);
+      if (col !== -1) sheet.getRange(fila, col + 1).setValue(seguro_(body[clave]));
     });
   }
   return {accion: "guardar_objetivo", Mes: body.Mes, Metrica: body.Metrica, actualizado: fila !== -1};
@@ -421,7 +444,7 @@ function actualizarCriticidad_(body) {
   let cambios = 0;
   for (let i = 0; i < n; i++) {
     const cod = String(codigos[i][0]).trim();
-    if (mapa.hasOwnProperty(cod)) { vals[i][0] = mapa[cod]; cambios++; }
+    if (mapa.hasOwnProperty(cod)) { vals[i][0] = seguro_(mapa[cod]); cambios++; }
   }
   rango.setValues(vals);
   return {accion: "actualizar_criticidad", actualizados: cambios};
@@ -734,7 +757,7 @@ function guardarCamposUsuario_(fila, campos) {
   const h = encabezados_(s).map(x => String(x).trim());
   Object.keys(campos).forEach(k => {
     const c = h.indexOf(k);
-    if (c !== -1) s.getRange(fila, c + 1).setValue(campos[k]);
+    if (c !== -1) s.getRange(fila, c + 1).setValue(seguro_(campos[k]));
   });
   invalidarCacheUsuarios_();
 }
@@ -938,6 +961,15 @@ function filasDeHoja_(nombre, ss) {
 }
 
 /** Evita HTML inyectado en los datos (un usuario de menor rol no debe poder atacar a un Administrador). */
+/** Evita la "inyección de fórmulas": si un texto empieza con = + @ (o - que no sea un número),
+ *  Sheets lo interpretaría como fórmula (falsear datos o enviar información hacia afuera).
+ *  Se antepone un apóstrofe, que Sheets usa como marca de "texto" y no muestra. Los números no se tocan. */
+function seguro_(v) {
+  if (typeof v !== "string" || !v) return v;
+  if (/^[=+@\t\r]/.test(v) || (v.charAt(0) === "-" && !/^-\s?[\d.,]+\s*$/.test(v))) return "'" + v;
+  return v;
+}
+
 function sanitizarCuerpo_(obj) {
   Object.keys(obj).forEach(k => {
     const v = obj[k];
@@ -1339,7 +1371,7 @@ function encabezados_(sheet) {
 /** Agrega una fila nueva respetando el orden de columnas existente en la hoja. */
 function agregarFilaPorEncabezados_(sheet, datos) {
   const headers = encabezados_(sheet);
-  const fila = headers.map(h => (datos[h] !== undefined ? datos[h] : ""));
+  const fila = headers.map(h => (datos[h] !== undefined ? seguro_(datos[h]) : ""));
   sheet.appendRow(fila);
 }
 
@@ -1362,7 +1394,7 @@ function actualizarFila_(sheet, fila, datos) {
   const h = encabezados_(sheet);
   Object.keys(datos).forEach(k => {
     const c = h.indexOf(k);
-    if (c !== -1) sheet.getRange(fila, c + 1).setValue(datos[k]);
+    if (c !== -1) sheet.getRange(fila, c + 1).setValue(seguro_(datos[k]));
   });
 }
 
@@ -1542,7 +1574,7 @@ function migrarCodigosEquipo() {
     for (let i = 0; i < valores.length; i++) {
       const actual = String(valores[i][0]).trim();
       if (mapa.hasOwnProperty(actual)) {
-        valores[i][0] = mapa[actual];
+        valores[i][0] = seguro_(mapa[actual]);
         actualizadas++;
       }
     }
