@@ -179,6 +179,10 @@ Solo **admin y jefe**. Sirve para cargar el listado de materiales de SAP (códig
 
 Acciones del servidor: `importar_catalogo_sap`, `aplicar_precios_sap` (ver `Code.gs`). Estas pestañas **no se vacían** al cerrar una campaña. Límite: 40.000 artículos por importación.
 
+### Nombres de SAP en los repuestos
+
+En *Repuestos → Catálogo SAP → Conciliar* el botón **Ver qué nombres cambiarían** muestra, antes de tocar nada, qué repuestos de los equipos cambian de nombre. Al confirmar, cada repuesto con código se renombra con la descripción que tiene ese mismo código en SAP (los ceros a la izquierda no importan). Los «S/C» y los códigos que no están en SAP no se tocan. El nombre anterior queda en la columna `Nombre_Original` y **Restaurar nombres originales** lo devuelve. Los costos no se pierden: la clave de un repuesto con código no depende del nombre. Requiere Code.gs v18.
+
 ## Pendiente para dejarlo 100% operativo
 
 - [ ] Crear la pestaña `Avances_Orden` (columnas en la sección 2) y

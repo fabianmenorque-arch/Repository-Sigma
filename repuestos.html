@@ -445,12 +445,30 @@ function drawConc(){
    <div class="bar"><label><input type="radio" name="modo" value="vacios" checked> Solo completar los que no tienen costo</label>
    <label><input type="radio" name="modo" value="todos"> Actualizar también los que ya tienen costo</label>
    <button class="b" id="btnAp" onclick="aplicarPrecios()">Aplicar precios de SAP</button></div>
-   <p><small>Los costos cargados a mano no se pisan salvo que elijas la segunda opción. Los repuestos «S/C» no tienen código y hay que asignarles precio a mano en «Costos y presupuesto».</small></p><div id="concres"></div>`;
+   <p><small>Los costos cargados a mano no se pisan salvo que elijas la segunda opción. Los repuestos «S/C» no tienen código y hay que asignarles precio a mano en «Costos y presupuesto».</small></p><div id="concres"></div>
+   <h4>Nombres de los repuestos</h4>
+   <p>El nombre de SAP manda: en cada repuesto con código, el nombre se reemplaza por el que tiene ese mismo código en SAP. El nombre anterior queda guardado (columna <i>Nombre_Original</i>) y se puede restaurar.</p>
+   <div class="bar"><button class="b" id="btnNom" onclick="nombresSap('simular')">Ver qué nombres cambiarían</button>
+   <button class="b" id="btnNomR" onclick="if(confirm('Se vuelven a poner los nombres que tenían antes de usar SAP. ¿Continuar?'))nombresSap('restaurar')">Restaurar nombres originales</button></div><div id="nomres"></div>`;
   box.innerHTML=html;
   const r=A.res;
   if(r)$('concres').innerHTML=`<p><b>Resultado:</b> ${r.nuevos} costos nuevos · ${r.actualizados} actualizados · ${r.conservados} sin cambios · ${r.no_estan_en_sap} códigos que no están en SAP.</p>`+
    (r.cambios.length?`<div class="sc"><table><tr><th>Código</th><th>Repuesto</th><th class="num">Antes</th><th class="num">Ahora</th></tr>${r.cambios.map(x=>`<tr><td>${esc(x.Codigo)}</td><td>${esc(x.Nombre)}</td><td class="num">${x.Antes===''?'—':fmt(x.Antes)}</td><td class="num">${fmt(x.Despues)}</td></tr>`).join('')}</table></div>`:'')+
    (r.faltan.length?`<details><summary>Códigos de los equipos que no están en el listado de SAP (${r.no_estan_en_sap})</summary><div class="sc"><table><tr><th>Código</th><th>Repuesto</th></tr>${r.faltan.map(x=>`<tr><td>${esc(x.Codigo)}</td><td>${esc(x.Nombre)}</td></tr>`).join('')}</table></div></details>`:'');
+}
+async function nombresSap(modo){
+  const b=$('btnNom'),bR=$('btnNomR');b.disabled=bR.disabled=true;
+  try{
+    const r=await sigmaApi('nombres_sap',{modo});
+    if(modo!=='simular'){S.rep=await sigmaFetchTab('Repuestos');}
+    b.disabled=bR.disabled=false;
+    const box=$('nomres');
+    if(modo==='restaurar'){box.innerHTML=`<p><b>Listo:</b> ${r.restaurados} repuestos volvieron a su nombre original.</p>`;sigmaToast('Nombres restaurados');return;}
+    if(modo==='aplicar'){box.innerHTML=`<p><b>Listo:</b> ${r.cambiados} repuestos ahora usan el nombre de SAP.</p>`;sigmaToast('Nombres actualizados');return;}
+    box.innerHTML=`<p>${r.cambiados} cambiarían de nombre · ${r.iguales} ya coinciden con SAP · ${r.no_estan_en_sap} con código que no está en SAP · ${r.sin_codigo} sin código (no se tocan).</p>`+
+     (r.cambiados?`<div class="sc"><table><tr><th>Código</th><th>Nombre actual</th><th>Nombre en SAP</th></tr>${r.cambios.map(x=>`<tr><td>${esc(x.Codigo)}</td><td>${esc(x.Antes)}</td><td>${esc(x.Despues)}</td></tr>`).join('')}</table></div>`+(r.cambiados>r.cambios.length?`<p><small>Se muestran los primeros ${r.cambios.length}.</small></p>`:'')+
+      `<div class="bar"><button class="b" onclick="if(confirm('Se van a reemplazar ${r.cambiados} nombres por los de SAP. ¿Continuar?'))nombresSap('aplicar')">Reemplazar ${r.cambiados} nombres por los de SAP</button></div>`:'');
+  }catch(e){b.disabled=bR.disabled=false;sigmaToast('No se pudo: '+e.message);}
 }
 async function aplicarPrecios(){
   const modo=(document.querySelector('input[name=modo]:checked')||{}).value||'vacios';

@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-14-v17-catalogo-sap";
+const VERSION_SCRIPT = "2026-10-15-v18-nombres-sap";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -184,6 +184,8 @@ function ejecutarEscritura_(accion, body) {
       return importarCatalogoSap_(body);
     case "aplicar_precios_sap":
       return aplicarPreciosSap_(body);
+    case "nombres_sap":
+      return nombresSap_(body);
     default:
       throw new Error("Acción desconocida: " + accion);
   }
@@ -546,7 +548,7 @@ const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos
 const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
   "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
   "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
-  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap"];
+  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap"];
 
 // Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
 const ACCIONES_CON_AUTOR = ["crear_observacion", "crear_equipo", "crear_orden", "crear_mantenimiento", "registrar_medicion",
@@ -1546,6 +1548,64 @@ function aplicarPreciosSap_(body) {
   });
   if (nuevasFilas.length) sheetP.getRange(sheetP.getLastRow() + 1, 1, nuevasFilas.length, h.length).setValues(nuevasFilas);
   r.accion = "aplicar_precios_sap";
+  return r;
+}
+
+
+/**
+ * Usa el nombre de SAP en la pestaña Repuestos (el código manda: mismo código = mismo nombre).
+ * body.modo: "simular" (solo cuenta y lista los cambios) | "aplicar" | "restaurar".
+ * El nombre anterior se guarda en la columna "Nombre_Original" (solo la primera vez), así se puede volver atrás.
+ * Los repuestos "S/C" o con un código que no está en SAP no se tocan.
+ */
+function nombresSap_(body) {
+  const modo = ["aplicar", "restaurar"].indexOf(body.modo) >= 0 ? body.modo : "simular";
+  const sheet = hoja_(SHEETS.REPUESTOS);
+  const n = sheet.getLastRow() - 1;
+  if (n < 1) throw new Error("La pestaña Repuestos no tiene datos.");
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const nombres = new Map();
+  [SHEETS.CATALOGO_SAP, SHEETS.SAP_DESCARTADOS].forEach(t => {
+    const s = ss.getSheetByName(t);
+    if (!s) return;
+    leerHojaSap_(s, 2).forEach(f => {
+      const d = String(f[1] == null ? "" : f[1]).trim();
+      if (d && !nombres.has(claveSap_(f[0]))) nombres.set(claveSap_(f[0]), d);
+    });
+  });
+  if (!nombres.size) throw new Error("Todavía no hay un catálogo de SAP cargado.");
+
+  if (modo !== "simular") asegurarColumna_(sheet, "Nombre_Original");
+  const h = encabezados_(sheet);
+  const cN = h.indexOf("Nombre"), cC = h.indexOf("Codigo_Repuesto"), cO = h.indexOf("Nombre_Original");
+  if (cN < 0 || cC < 0) throw new Error("Faltan las columnas Nombre y Codigo_Repuesto en Repuestos.");
+  const vals = sheet.getRange(2, 1, n, h.length).getValues();
+  const r = {modo, cambiados: 0, iguales: 0, sin_codigo: 0, no_estan_en_sap: 0, restaurados: 0, cambios: []};
+  const outN = [], outO = [];
+  vals.forEach(f => {
+    let nom = f[cN], orig = cO >= 0 ? f[cO] : "";
+    const codigo = normTexto_(f[cC]);
+    if (modo === "restaurar") {
+      if (orig !== "" && orig != null) { nom = orig; orig = ""; r.restaurados++; }
+    } else if (!codigo || codigo === "S/C") {
+      r.sin_codigo++;
+    } else {
+      const sap = nombres.get(claveSap_(codigo));
+      if (sap === undefined) r.no_estan_en_sap++;
+      else if (String(nom).trim() === sap) r.iguales++;
+      else {
+        r.cambiados++;
+        if (r.cambios.length < 300) r.cambios.push({Codigo: codigo, Antes: String(nom), Despues: sap});
+        if (modo === "aplicar") { if (orig === "" || orig == null) orig = nom; nom = seguro_(sap); }
+      }
+    }
+    outN.push([nom]); outO.push([orig]);
+  });
+  if (modo !== "simular") {
+    sheet.getRange(2, cN + 1, n, 1).setValues(outN);
+    sheet.getRange(2, cO + 1, n, 1).setNumberFormat("@").setValues(outO);
+  }
+  r.accion = "nombres_sap";
   return r;
 }
 
