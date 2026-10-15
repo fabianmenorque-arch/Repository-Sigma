@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-14-v16-seguridad";
+const VERSION_SCRIPT = "2026-10-14-v17-catalogo-sap";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -53,7 +53,9 @@ const SHEETS = {
   OBJETIVOS: "Objetivos",
   PRECIOS: "Precios",
   OBSERVACIONES: "Observaciones",
-  CAMPANIAS: "Campanias"
+  CAMPANIAS: "Campanias",
+  CATALOGO_SAP: "Catalogo_SAP",
+  SAP_DESCARTADOS: "SAP_Descartados"
 };
 
 /* ============================================================
@@ -178,6 +180,10 @@ function ejecutarEscritura_(accion, body) {
       return guardarPrecio_(body);
     case "crear_observacion":
       return crearObservacion_(body);
+    case "importar_catalogo_sap":
+      return importarCatalogoSap_(body);
+    case "aplicar_precios_sap":
+      return aplicarPreciosSap_(body);
     default:
       throw new Error("Acción desconocida: " + accion);
   }
@@ -535,12 +541,12 @@ const ROLES = {
 // Pestañas de datos del sistema (la hoja "Usuarios" NO está en ninguna lista: nadie puede leerla desde la web)
 const PESTANAS_OPERATIVAS = ["Equipos", "Mantenimientos", "Ordenes_de_Trabajo", "Imagenes", "Variables",
   "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones", "Campanias"];
-const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios"]);
+const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios", "Catalogo_SAP", "SAP_Descartados"]);
 
 const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
   "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
   "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
-  "eliminar_repuesto", "guardar_precio", "crear_observacion"];
+  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap"];
 
 // Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
 const ACCIONES_CON_AUTOR = ["crear_observacion", "crear_equipo", "crear_orden", "crear_mantenimiento", "registrar_medicion",
@@ -1352,6 +1358,195 @@ function leerCampania_(usuario, body) {
     }
   });
   return salida;
+}
+
+/* ============================================================
+   CATÁLOGO SAP
+   ------------------------------------------------------------
+   El listado que se descarga de SAP (código, descripción, precio...) se guarda en dos pestañas:
+     Catalogo_SAP     → artículos de mecánica ("Mecanico") y dudosos ("Revisar"), con precio e historial
+     SAP_Descartados  → artículos sin incidencia mecánica (limpieza, librería, laboratorio...). Se guardan
+                        para recordar la decisión y no volver a preguntar en la próxima carga.
+   Los precios se pasan a "Precios" con aplicarPreciosSap_, que es lo que usa el presupuesto de Repuestos.
+   Estas pestañas NO se vacían al cerrar una campaña (son datos de referencia, como Equipos o Repuestos).
+   ============================================================ */
+
+const COL_CATALOGO_SAP = ["Codigo_SAP", "Descripcion", "Unidad", "Grupo_Articulos", "Precio", "Precio_Anterior", "Fecha_Precio", "Estado", "Motivo", "Fecha_Carga"];
+const COL_SAP_DESCARTADOS = ["Codigo_SAP", "Descripcion", "Unidad", "Grupo_Articulos", "Precio", "Motivo", "Fecha_Carga"];
+const MAX_FILAS_SAP = 40000;
+const ESTADOS_SAP = ["Mecanico", "Revisar", "Descartado"];
+
+/** Clave para comparar códigos de SAP: sin espacios y sin ceros a la izquierda ("000123" = "123"). */
+function claveSap_(codigo) {
+  return String(codigo == null ? "" : codigo).trim().toUpperCase().replace(/\s+/g, "").replace(/^0+(?=.)/, "");
+}
+
+/** Crea la pestaña si no existe. Las columnas de código y fechas van en formato TEXTO
+ *  (si no, Sheets borra los ceros a la izquierda y convierte las fechas). */
+function hojaSap_(nombre, columnas, colTexto) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let s = ss.getSheetByName(nombre);
+  if (!s) {
+    s = ss.insertSheet(nombre);
+    colTexto.forEach(c => s.getRange(1, c, s.getMaxRows(), 1).setNumberFormat("@"));
+    s.appendRow(columnas);
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function leerHojaSap_(sheet, nCols) {
+  const n = sheet.getLastRow() - 1;
+  return n < 1 ? [] : sheet.getRange(2, 1, n, nCols).getValues();
+}
+
+function escribirHojaSap_(sheet, filas, nCols, colTexto) {
+  const previas = sheet.getLastRow() - 1;
+  if (previas >= 1) sheet.getRange(2, 1, previas, Math.max(sheet.getLastColumn(), nCols)).clearContent();
+  if (!filas.length) return;
+  colTexto.forEach(c => sheet.getRange(2, c, filas.length, 1).setNumberFormat("@"));
+  sheet.getRange(2, 1, filas.length, nCols).setValues(filas);
+}
+
+function precioSap_(v) {
+  if (v === "" || v == null) return "";
+  const n = Number(v);
+  return isFinite(n) && n >= 0 ? n : "";
+}
+
+/**
+ * body.filas = [{Codigo_SAP, Descripcion, Unidad, Grupo_Articulos, Precio, Estado, Motivo}]
+ * Estado: Mecanico | Revisar | Descartado (lo decide la persona en la pantalla de revisión).
+ * Un artículo que cambia de estado se mueve de una pestaña a la otra. Si el precio cambia se
+ * guarda el anterior. Los artículos que no vienen en este archivo no se tocan.
+ */
+function importarCatalogoSap_(body) {
+  const entrada = Array.isArray(body.filas) ? body.filas : [];
+  if (!entrada.length) throw new Error("No llegó ningún artículo para importar.");
+  if (entrada.length > MAX_FILAS_SAP) throw new Error("El archivo tiene demasiados artículos (máximo " + MAX_FILAS_SAP + "). Dividilo en partes.");
+
+  const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const hojaC = hojaSap_(SHEETS.CATALOGO_SAP, COL_CATALOGO_SAP, [1, 7, 10]);
+  const hojaD = hojaSap_(SHEETS.SAP_DESCARTADOS, COL_SAP_DESCARTADOS, [1, 7]);
+  const cat = new Map(), desc = new Map();
+  leerHojaSap_(hojaC, COL_CATALOGO_SAP.length).forEach(f => cat.set(claveSap_(f[0]), f));
+  leerHojaSap_(hojaD, COL_SAP_DESCARTADOS.length).forEach(f => desc.set(claveSap_(f[0]), f));
+
+  const r = {nuevos: 0, actualizados: 0, precios_cambiados: 0, descartados_nuevos: 0, movidos: 0, omitidos: 0};
+  entrada.forEach(it => {
+    const codigo = String(it.Codigo_SAP == null ? "" : it.Codigo_SAP).trim();
+    const k = claveSap_(codigo);
+    if (!k || codigo.length > 40) { r.omitidos++; return; }
+    const estado = ESTADOS_SAP.indexOf(it.Estado) !== -1 ? it.Estado : "Revisar";
+    const descripcion = seguro_(String(it.Descripcion || "").trim().slice(0, 200));
+    const unidad = seguro_(String(it.Unidad || "").trim().slice(0, 20));
+    const grupo = seguro_(String(it.Grupo_Articulos || "").trim().slice(0, 80));
+    const motivo = seguro_(String(it.Motivo || "").trim().slice(0, 80));
+    const precio = precioSap_(it.Precio);
+
+    if (estado === "Descartado") {
+      if (cat.has(k)) { cat.delete(k); r.movidos++; }
+      else if (!desc.has(k)) r.descartados_nuevos++;
+      const previo = desc.get(k);
+      desc.set(k, [codigo, descripcion, unidad, grupo, precio === "" && previo ? previo[4] : precio, motivo, hoy]);
+      return;
+    }
+    let previoD = null;
+    if (desc.has(k)) { previoD = desc.get(k); desc.delete(k); r.movidos++; }
+    const previo = cat.get(k);
+    if (!previo) {
+      cat.set(k, [codigo, descripcion, unidad, grupo, precio === "" && previoD ? previoD[4] : precio, "", precio === "" ? "" : hoy, estado, motivo, hoy]);
+      if (!previoD) r.nuevos++;
+      return;
+    }
+    let anterior = previo[5], fechaPrecio = previo[6], vigente = previo[4];
+    if (precio !== "" && Number(precio) !== Number(previo[4])) {
+      if (previo[4] !== "" && previo[4] != null) { anterior = previo[4]; r.precios_cambiados++; }
+      vigente = precio; fechaPrecio = hoy;
+    }
+    cat.set(k, [codigo, descripcion, unidad, grupo, vigente, anterior, fechaPrecio, estado, motivo, hoy]);
+    r.actualizados++;
+  });
+
+  escribirHojaSap_(hojaC, Array.from(cat.values()), COL_CATALOGO_SAP.length, [1, 7, 10]);
+  escribirHojaSap_(hojaD, Array.from(desc.values()), COL_SAP_DESCARTADOS.length, [1, 7]);
+  r.total_catalogo = cat.size;
+  r.total_descartados = desc.size;
+  r.accion = "importar_catalogo_sap";
+  return r;
+}
+
+function normTexto_(v) { return String(v == null ? "" : v).trim().toUpperCase().replace(/\s+/g, " "); }
+
+/** Misma clave que arma repuestos.html (clave()) para identificar un repuesto en la pestaña Precios. */
+function clavePrecio_(codigo, designacion, nombre) {
+  const c = normTexto_(codigo), ok = c && c !== "S/C";
+  return (ok ? c : "S/C") + "|" + normTexto_(designacion) + (ok ? "" : "|" + normTexto_(nombre));
+}
+
+/**
+ * Pasa los precios del catálogo SAP a la pestaña Precios, para los repuestos de los equipos cuyo
+ * código coincide. body.modo: "vacios" (solo completa los que no tienen costo; no pisa lo cargado a mano)
+ * o "todos" (actualiza también los que ya tienen costo).
+ */
+function aplicarPreciosSap_(body) {
+  const modo = body.modo === "todos" ? "todos" : "vacios";
+  const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const ssC = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CATALOGO_SAP);
+  if (!ssC || ssC.getLastRow() < 2) throw new Error("Todavía no hay un catálogo de SAP cargado.");
+  const precios = new Map();
+  leerHojaSap_(ssC, COL_CATALOGO_SAP.length).forEach(f => {
+    const p = precioSap_(f[4]);
+    if (p !== "" && p > 0 && f[7] !== "Descartado") precios.set(claveSap_(f[0]), p);
+  });
+
+  const sheetP = hojaOCrear_(SHEETS.PRECIOS, ["Clave_Repuesto", "Codigo_Repuesto", "Nombre", "Designacion", "Costo_Unitario", "Plazo_Dias"]);
+  asegurarColumna_(sheetP, "Fuente");
+  asegurarColumna_(sheetP, "Fecha_Precio");
+  const h = encabezados_(sheetP);
+  const col = n => h.indexOf(n);
+  const nP = sheetP.getLastRow() - 1;
+  const valoresP = nP >= 1 ? sheetP.getRange(2, 1, nP, h.length).getValues() : [];
+  const filaDe = new Map();
+  valoresP.forEach((f, i) => filaDe.set(String(f[col("Clave_Repuesto")]), i));
+
+  const r = {nuevos: 0, actualizados: 0, conservados: 0, sin_codigo: 0, no_estan_en_sap: 0, cambios: [], faltan: []};
+  const vistos = new Set();
+  const nuevasFilas = [];
+  filasDeHoja_(SHEETS.REPUESTOS).forEach(rep => {
+    const k = clavePrecio_(rep.Codigo_Repuesto, rep.Designacion, rep.Nombre);
+    if (vistos.has(k)) return;
+    vistos.add(k);
+    const codigo = normTexto_(rep.Codigo_Repuesto);
+    if (!codigo || codigo === "S/C") { r.sin_codigo++; return; }
+    const precio = precios.get(claveSap_(codigo));
+    if (precio === undefined) {
+      r.no_estan_en_sap++;
+      if (r.faltan.length < 100) r.faltan.push({Codigo: codigo, Nombre: rep.Nombre});
+      return;
+    }
+    const i = filaDe.get(k);
+    if (i === undefined) {
+      const fila = h.map(() => "");
+      fila[col("Clave_Repuesto")] = k; fila[col("Codigo_Repuesto")] = codigo; fila[col("Nombre")] = seguro_(rep.Nombre || "");
+      fila[col("Designacion")] = seguro_(rep.Designacion || ""); fila[col("Costo_Unitario")] = precio;
+      fila[col("Fuente")] = "SAP"; fila[col("Fecha_Precio")] = hoy;
+      nuevasFilas.push(fila); r.nuevos++;
+      return;
+    }
+    const actual = valoresP[i][col("Costo_Unitario")];
+    const tiene = actual !== "" && actual != null && Number(actual) > 0;
+    if (tiene && modo === "vacios") { r.conservados++; return; }
+    if (tiene && Number(actual) === precio) { r.conservados++; return; }
+    if (r.cambios.length < 200) r.cambios.push({Codigo: codigo, Nombre: rep.Nombre, Antes: tiene ? Number(actual) : "", Despues: precio});
+    sheetP.getRange(i + 2, col("Costo_Unitario") + 1).setValue(precio);
+    sheetP.getRange(i + 2, col("Fuente") + 1).setValue("SAP");
+    sheetP.getRange(i + 2, col("Fecha_Precio") + 1).setValue(hoy);
+    r.actualizados++;
+  });
+  if (nuevasFilas.length) sheetP.getRange(sheetP.getLastRow() + 1, 1, nuevasFilas.length, h.length).setValues(nuevasFilas);
+  r.accion = "aplicar_precios_sap";
+  return r;
 }
 
 /* ============================================================

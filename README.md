@@ -165,6 +165,20 @@ Se exige escribir la frase **CERRAR CAMPAÑA** (validada también en el servidor
 
 **Despliegue:** pegar el nuevo `Code.gs`, generar **nueva versión** de la implementación, subir los HTML/JS, recargar con Ctrl+F5 y volver a iniciar sesión (aparece "Campañas" en el menú). La pestaña `Campanias` se crea sola.
 
+### Catálogo SAP (pestaña «Catálogo SAP» en `repuestos.html`)
+
+Solo **admin y jefe**. Sirve para cargar el listado de materiales de SAP (código, descripción, precio) y armar con eso el presupuesto anual de repuestos.
+
+**Export de SAP que se usa hoy** (Centro / Almacén / Material / Texto breve de material / Libre utilización / Valor libre util. / Lote): no trae precio unitario ni grupo. SIGMA calcula el precio como *valor del stock ÷ cantidad* (suma varios almacenes y lotes del mismo material), por lo que **los materiales sin stock quedan sin precio**; para presupuestarlos hay que exportar de SAP un listado con precio (precio medio variable o estándar). Sin columna de grupo, se agrupa por *tipo de artículo* (primera palabra de la descripción). Criterio definido: **solo mecánica** (se proponen descartar eléctrico/instrumentación, herramientas, ropa y EPP, librería, limpieza, laboratorio y químicos/materias primas); las reglas están en `repuestos.html` (`TIPOS_MEC`, `TIPOS_NO`).
+
+1. **Importar:** se elige el Excel/CSV descargado de SAP. SIGMA detecta solo los encabezados y las columnas (se pueden corregir), lo lee en el navegador y propone una clasificación **por grupo de artículos**: *mecánica*, *revisar* o *descartar* (limpieza, librería, laboratorio, materias primas, etc.). Se corrige por grupo antes de confirmar. Los artículos ya conocidos mantienen la decisión anterior.
+2. **Dónde se guarda:** `Catalogo_SAP` (mecánica y a revisar, con precio, precio anterior y fecha) y `SAP_Descartados` (para recordar qué se descartó). Se crean solas. Los códigos se guardan como texto para no perder ceros a la izquierda.
+3. **Pasar precios a los equipos:** el botón «Aplicar precios de SAP» compara el código de cada repuesto de los equipos con el catálogo (ignora ceros a la izquierda) y completa la pestaña `Precios` (columnas nuevas `Fuente` y `Fecha_Precio`). Por defecto no pisa los costos cargados a mano.
+4. **Presupuesto del año próximo:** en «Costos y presupuesto» hay un campo «Ajuste de costos año próximo (%)» que proyecta todos los costos sin modificar lo guardado; el Excel exportado trae el costo cargado, el ajuste y el costo ajustado.
+5. En el catálogo se puede buscar, tildar artículos y marcarlos como mecánica / revisar / descartar, y filtrar «los que no están asignados a ningún equipo» (candidatos a sumar a la lista de repuestos).
+
+Acciones del servidor: `importar_catalogo_sap`, `aplicar_precios_sap` (ver `Code.gs`). Estas pestañas **no se vacían** al cerrar una campaña. Límite: 40.000 artículos por importación.
+
 ## Pendiente para dejarlo 100% operativo
 
 - [ ] Crear la pestaña `Avances_Orden` (columnas en la sección 2) y
