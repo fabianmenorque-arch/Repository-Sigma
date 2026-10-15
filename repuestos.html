@@ -196,9 +196,11 @@ const SAP_COLS={
   descripcion:['texto breve de material','texto breve','descripcion','denominacion','texto de material','descripcion del material','descripcion material','nombre'],
   unidad:['umb','unidad','unidad de medida base','unidad de medida','um','u m'],
   grupo:['grupo de articulos','gr articulos','grupo articulos','grupo de material','grupo mat','gpo art','grupo','rubro','familia'],
+  stock:['libre utilizacion','stock libre','stock','cantidad','existencias','stock disponible'],
+  valor:['valor libre util','valor libre utilizacion','valor stock','valor del stock','valor total','valor libre'],
   precio:['precio medio variable','precio medio','pmp','precio unitario','valor unitario','precio estandar','precio','costo unitario','costo','precio neto','precio de stock','valor de stock unitario']
 };
-const SAP_CAMPOS=[['codigo','Código del artículo',1],['descripcion','Descripción',1],['precio','Precio',0],['unidad','Unidad',0],['grupo','Grupo de artículos (código)',0],['grupo2','Grupo de artículos (nombre)',0]];
+const SAP_CAMPOS=[['codigo','Código del artículo',1],['descripcion','Descripción',1],['precio','Precio unitario',0],['stock','Cantidad en stock',0],['valor','Valor del stock',0],['unidad','Unidad',0],['grupo','Grupo de artículos (código)',0],['grupo2','Grupo de artículos (nombre)',0]];
 function puntajeEnc(celda,campo){
   const c=sinTilde(celda);if(!c)return 0;
   let best=0;
@@ -233,23 +235,62 @@ function parsePrecio(v){
   return isFinite(n)&&n>=0?n:'';
 }
 const claveSap=c=>String(c==null?'':c).trim().toUpperCase().replace(/\s+/g,'').replace(/^0+(?=.)/,'');
-const RE_GRUPO_NO=/limpieza|libreri|papeler|oficina|laborator|reactiv|materia prima|materias primas|alimento|vajilla|cocina|higiene|cosmetic|medicament|botiquin/;
-const RE_GRUPO_SI=/repuesto|rodamiento|ferreteri|mecanic|lubric|soldadura|herramienta|neumatic|hidraulic|transmision|sellos|valvula|bomba/;
-const RE_DESC_NO=/\b(detergente|lavandina|desinfectante|jabon|escoba|bolsas? de residuo|papel higienico|toalla de papel|resma|lapicera|birome|boligrafo|marcador|cuaderno|abrochadora|toner|cartucho de tinta|probeta|pipeta|matraz|erlenmeyer|reactivo|tubo de ensayo|vaso de precipitado|papel de filtro|yerba|cafe)\b/;
-const RE_DESC_SI=/\b(rodamientos?|rulemanes|rulema|cojinetes?|bujes?|sellos?|retenes?|reten|o ring|empaquetaduras?|juntas?|bombas?|correas?|cadenas?|pinon|pinones|engranajes?|acoples?|chavetas?|rodetes?|impulsor|valvulas?|bridas?|pernos?|bulon|bulones|tornillos?|tuercas?|arandelas?|resortes?|mangueras?|grasa|aceite|disco de corte|electrodos?|soldadura|ejes?|poleas?|reductor|cuplas?|casquillos?|camisas?|anillos?|piston|cilindros?)\b/;
-/** Propuesta automática. Devuelve {estado:'Mecanico'|'Revisar'|'Descartado', motivo}. */
-function clasificarSap(desc,grupo){
-  const g=sinTilde(grupo),d=sinTilde(desc);
-  const gv=RE_GRUPO_NO.test(g)?'D':RE_GRUPO_SI.test(g)?'M':null;
-  const dv=RE_DESC_NO.test(d)?'D':RE_DESC_SI.test(d)?'M':null;
-  if(gv&&dv&&gv!==dv)return{estado:'Revisar',motivo:'Grupo y descripción no coinciden'};
+const RE_GRUPO_NO=/limpieza|libreri|papeler|oficina|laborator|reactiv|materia prima|materias primas|alimento|vajilla|cocina|higiene|cosmetic|medicament|botiquin|electric|instrumentac|indumentaria|epp|herramienta/;
+const RE_GRUPO_SI=/repuesto|rodamiento|ferreteri|mecanic|lubric|soldadura|neumatic|hidraulic|transmision|sellos|valvula|bomba/;
+/* Sin columna de grupo, SAP casi siempre empieza la descripción con el TIPO de artículo ("RODAMIENTO 6205", "CABLE UNIPOLAR..."),
+   así que se agrupa por esa primera palabra. Criterio de este almacén: solo mecánica (se descarta eléctrico, instrumentación,
+   herramientas, ropa/EPP, librería, limpieza, laboratorio y materias primas/químicos de proceso). */
+const ALIAS_TIPO={rodam:'rodamiento',rodamento:'rodamiento',rodamineto:'rodamiento',rodameinto:'rodamiento',valv:'valvula',valvulas:'valvula',
+  bujes:'buje',cuplas:'cupla',guantes:'guante',anteojos:'anteojo',antiparras:'antiparra',marcadores:'marcador',pipetas:'pipeta',limas:'lima',
+  destornilladores:'destornillador',tubos:'tubo',cables:'cable',fichas:'ficha',placas:'placa',carbones:'carbon',esparragos:'esparrago',
+  arandelas:'arandela',collares:'collar',cartuchos:'cartucho',puntera:'puntera',punteras:'puntera',equipos:'equipo',rele:'rele',relé:'rele',
+  portalamp:'portalampara',electromon:'electromonofasico',pint:'pintura',jgo:'juego',juegos:'juego',pallets:'pallet',camisas:'camisa',
+  'q.i.':'quimico','u.a.n':'quimico',a:'',aº:'',t:'',ac:''};
+const TIPOS_GENERICOS=new Set(['kit','juego','jgo','set','pack','de','del','para','p','con','tipo','un','una','el','la','y','repuesto','repuestos','nuevo','mod','modelo','rep','repar','reparacion']);
+const TIPOS_MEC=new Set(('rodamiento manguito manchon cojinete buje casquillo sello retén reten empaquetadura junta oring cupla acople acoplamiento eje chaveta prisionero pasador '+
+  'bulon bulo tornillo tuerca arandela esparrago tirafondo perno grampa abrazadera resorte muelle brida codo niple racor racord union curva tee reduccion cano caño tubo valvula '+
+  'electrovalvula asiento obturador diafragma membrana bomba electrobomba impulsor rodete difusor cuerpo carcasa tapa soporte bastidor vastago embolo piston cilindro camisa liner anillo collar '+
+  'correa banda cadena eslabon piñon pinon engranaje polea reductor motorreductor multiplicador corona contradisco rodillo minirodillo paleta peine maza molino bagacera cuña cuna pestaña freno amortiguador palanca articulacion '+
+  'grasa grasera aceite aceitera lubricante vaselina grafito trabasil locktite sellante filtro microfiltro portafiltro chapa planchuela perfil barra angulo hierro varilla platina ipn llanta '+
+  'electrodo soldadura disco rotor estator motor actuador acople guia brazo manguera goma plancha redondo elastico masa pasta hose mitad housing thrust spacer rubber sealing radial scrapper clamping mount linear tobera piquera nozzle eyector alineador '+
+  'cabezal rejilla grilla trampa precalentador pulmon sifon manifold canasto lubricador compresor turbina engrase tensor zunchon').split(' '));
+const TIPOS_NO=new Set(('cable cablecanal rele breaker guardamotor fusible tomacorriente zapatilla contactor contacto conector terminal bornera interruptor pulsador led lampara portalampara reflector luminaria luz fuente modulo plc cpu hmi sensor transmisor transductor termocupla rtd pt100 termometro manometro vacuometro manovacuo '+
+  'variador arrancador temporizador timer disyuntor selector capacitor condensador resistor trafo bateria pila switch ups bobina electroposicionador posicionador controlador convertidor conversor fotocelula detector medidor multimetro megometro tester comprobador panel gabinete tablero ficha enchufe toma prensacable precinto spaghetti pelacable monitor teclado mouse tv memoria datalogger handy caudalimetro nivel indicador limite piloto electromonofasico rectificador amplificador eliminador captor simatic sentron aislador baliza cuadrante mini nano rack celdas '+
+  'bloqueador riel llave bocallave dados destornillador alicate pinza martillo rotomartillo amoladora pulidora taladro sierra lima lija cepillo pistola remachadora aparejo escalera bits bit fresa mecha broca macho terraja tijera cutter soldador soldadora desoldador hidrolavadora aspiradora sopladora soplete torquimetro pala barreta carretilla zorra pallet candado tenazas gatillo escuadra regla prensa caballete mandril puntal torniquete cuerda eslinga grillete cinturon arnes arneses gancho tacho balde estufa maquin tabla cinta pincel pintura esmalte barniz enduido adhesivo plasticola fastix poxiran antioxido aguarras diluyente solvente masilla resina revestimiento recubrimiento calco cesto banco taburete bandeja bisagra clavo taco tarugo durlock anclaje estopa trapo '+
+  'zapato bota botin casco mascara barbijo guante sobreguante anteojo antiparra protector pantalon campera chaqueta chomba remera overol mameluco delantal chaleco media puntera tapon careta respirador visor cofia haragan calzado cortina pertiga '+
+  'bibliorato carpeta cuaderno resma lapicera lapiz boligrafo marcador resaltador abrochadora broche sacabroches borrador calculadora tinta cartucho toner pad folio pizarra libro papel sobre portaminas mina carton hoja rollo funda llavero rotuladora grabador hilo '+
+  'detergente lavandina desodorante franela toalla escoba escobillon limpiador limpiantes limpia desengrasante virulana esponja dispenser bolsa bolson inodoro mingitorio bidet griferia canilla ducha artefacto grifo botella frasco garrafa jarra '+
+  'alcohol pipeta matraz probeta bureta erlenmeyer erlermeyer vaso brixometro areometro baume buffer reactivo murexida fehling cloruro hidroxido acido sulfato dioxido nitrato cromato permanganato peroxido hipoclorito tartrato biftalato borax fosfato ferrocianuro ioduro iodo anaranjado subacetato titulador patron crisol gradilla piseta viales destilador colorimetro espectrofotometro termohigrometro muestreador capsula solucion decolorante agua azufre carbonato '+
+  'azucar melaza urea soda cal floculante antiincrustante bactericida antiespumante humectante secuestrante acondicionador kemtalofloc floc mafloc hidrosulfito surfac cletodim repelente bagazo leña biomasa tierra ripio hormigon ladrillo sal leche gas quimico almidon extintor matafuego señaliz.emerg. señalizacion ropa fuego cloro cristal vidrio tv hielo').split(' '));
+const RE_DESC_NO=/\b(inodoro|led|termocontraible|residuo|tomacorriente|bornera|pulsador|guardamotor|aislante|antiderrame|policarbonato|durlock|tarugo|sport|talle|lampara|portalampara|cable|rele)\b/;
+const tipoDe=(desc)=>{
+  const toks=sinTilde(desc).split(' ').filter(Boolean);
+  for(let i=0;i<Math.min(toks.length,4);i++){
+    let t=ALIAS_TIPO.hasOwnProperty(toks[i])?ALIAS_TIPO[toks[i]]:toks[i];
+    if(!t||TIPOS_GENERICOS.has(t)||/^\d/.test(t))continue;
+    return t;
+  }
+  return '';
+};
+const enSet=(set,t)=>set.has(t)||(t.length>4&&(set.has(t.replace(/(es|s)$/,''))));
+/** Propuesta automática. Devuelve {estado:'Mecanico'|'Revisar'|'Descartado', motivo, tipo}. */
+function clasificarSap(desc,grupo,grupoReal){
+  const g=sinTilde(grupo),d=sinTilde(desc),tipo=tipoDe(desc);
+  const gv=grupoReal?(RE_GRUPO_NO.test(g)?'D':RE_GRUPO_SI.test(g)?'M':null):null;
+  let dv=null;
+  if(RE_DESC_NO.test(d))dv='D';
+  else if(tipo&&enSet(TIPOS_NO,tipo))dv='D';
+  else if(tipo&&enSet(TIPOS_MEC,tipo))dv='M';
+  if(gv&&dv&&gv!==dv)return{estado:'Revisar',motivo:'Grupo y descripción no coinciden',tipo};
   const v=gv||dv;
-  if(!v)return{estado:'Revisar',motivo:'Sin regla'};
-  return{estado:v==='D'?'Descartado':'Mecanico',motivo:(gv?'Grupo: ':'Palabra clave: ')+(gv?String(grupo).slice(0,40):(d.match(v==='D'?RE_DESC_NO:RE_DESC_SI)||[''])[0])};
+  if(!v)return{estado:'Revisar',motivo:'Sin regla',tipo};
+  return{estado:v==='D'?'Descartado':'Mecanico',motivo:gv?'Grupo: '+String(grupo).slice(0,40):'Tipo de artículo: '+(tipo||'—'),tipo};
 }
 /** Arma las filas a importar a partir de la matriz del archivo, el mapeo y las decisiones anteriores. */
 function prepararImportacion(m,fila,map,previas,sobreescribir){
-  const filas=new Map(),r={leidas:0,sin_codigo:0,duplicadas:0,sin_precio:0};
+  const filas=new Map(),r={leidas:0,sin_codigo:0,duplicadas:0,sin_precio:0,precio_calculado:0,sin_stock:0};
+  const derivado=map.grupo==null&&map.grupo2==null,calc=map.precio==null&&map.stock!=null&&map.valor!=null;
+  const acc=new Map();
   for(let i=fila+1;i<m.length;i++){
     const f=m[i]||[];
     const cod=String(f[map.codigo]==null?'':f[map.codigo]).trim();
@@ -260,15 +301,24 @@ function prepararImportacion(m,fila,map,previas,sobreescribir){
     if(!k){r.sin_codigo++;continue;}
     const g1=map.grupo!=null?String(f[map.grupo]==null?'':f[map.grupo]).trim():'';
     const g2=map.grupo2!=null?String(f[map.grupo2]==null?'':f[map.grupo2]).trim():'';
-    const grupo=g1&&g2?g1+' · '+g2:(g2||g1||'(sin grupo)');
+    const grupo=derivado?(tipoDe(desc).toUpperCase()||'(SIN TIPO)'):(g1&&g2?g1+' · '+g2:(g2||g1||'(sin grupo)'));
     const precio=map.precio!=null?parsePrecio(f[map.precio]):'';
-    if(precio==='')r.sin_precio++;
     const unidad=map.unidad!=null?String(f[map.unidad]==null?'':f[map.unidad]).trim():'';
-    if(filas.has(k)){r.duplicadas++;const a=filas.get(k);if(precio!==''&&a.Precio==='')a.Precio=precio;continue;}
-    const prev=previas.get(k),prop=clasificarSap(desc,grupo);
+    if(calc){   // el listado trae stock y su valor: precio unitario = valor ÷ cantidad (se suman varios almacenes/lotes del mismo material)
+      const st=parsePrecio(f[map.stock]),va=parsePrecio(f[map.valor]);
+      if(st!==''&&va!==''&&st>0){const a=acc.get(k)||{s:0,v:0};a.s+=st;a.v+=va;acc.set(k,a);}
+    }
+    if(filas.has(k)){r.duplicadas++;const a=filas.get(k);if(precio!==''&&a.Precio==='')a.Precio=precio;if(!a.Descripcion&&desc)a.Descripcion=desc;continue;}
+    const prev=previas.get(k),prop=clasificarSap(desc,grupo,!derivado);
     filas.set(k,{Codigo_SAP:cod,Descripcion:desc,Unidad:unidad,Grupo_Articulos:grupo,Precio:precio,
       Estado:prev&&!sobreescribir?prev:prop.estado,Motivo:prev&&!sobreescribir?'Decisión anterior':prop.motivo,_nuevo:!prev,_propuesta:prop.estado});
   }
+  filas.forEach((f,k)=>{
+    const a=acc.get(k);
+    if(f.Precio===''&&a&&a.s>0&&a.v>0){f.Precio=Math.round(a.v/a.s*100)/100;r.precio_calculado++;}
+    if(f.Precio==='')r.sin_precio++;
+  });
+  r.derivado=derivado;r.calculado=calc;
   return{filas:Array.from(filas.values()),res:r};
 }
 /* ===== FIN LÓGICA SAP ===== */
@@ -317,7 +367,7 @@ function leerArchivoSap(file){
       const mat=h=>XLSX.utils.sheet_to_json(wb.Sheets[h],{header:1,raw:true,defval:'',blankrows:true});
       let h=hojas[0],m=mat(h),mejor=detectarEncabezado(m);
       hojas.slice(1).forEach(x=>{const mm=mat(x),d=detectarEncabezado(mm);if(d.n>mejor.n){h=x;m=mm;mejor=d;}});
-      S.sap.imp={archivo:file.name,hoja:h,m,fila:mejor.fila,map:mejor.map,over:{},reaplicar:false,listo:false};
+      S.sap.imp={archivo:file.name,hoja:h,m,fila:mejor.fila,map:mejor.map,over:{},reaplicar:false,listo:false,soloRev:true};
       drawImp();
     }catch(e){sigmaToast('No se pudo leer el archivo: '+e.message);}
   };
@@ -332,9 +382,11 @@ function drawImp(){
   let html=`<div class="plate" style="padding:1rem;margin:.6rem 0"><p><b>${esc(I.archivo)}</b> · hoja «${esc(I.hoja)}» · encabezados en la fila ${I.fila+1}. Revisá que cada dato esté en la columna correcta:</p><div class="bar">`+
    SAP_CAMPOS.map(([k,l,req])=>`<label>${l}${req?' *':''}<select onchange="cambiarMapa('${k}',this.value)"><option value="">${req?'— elegir —':'— no viene —'}</option>${Array.from({length:ncol},(_,j)=>opt(j).replace(`value="${j}"`,`value="${j}"${I.map[k]===j?' selected':''}`)).join('')}</select></label>`).join('')+`</div>`;
   if(I.map.codigo==null||I.map.descripcion==null){box.innerHTML=html+`<p class="warn">Elegí al menos las columnas de código y descripción.</p></div>`;return;}
-  if(I.map.precio==null)html+=`<p class="warn">No se eligió la columna de precio: se importarán los códigos pero sin precios.</p>`;
   const prev=claveCat(),P=prepararImportacion(I.m,I.fila,I.map,prev,I.reaplicar);
   I.prep=P;
+  if(P.res.calculado)html+=`<p><b>Precio:</b> el archivo no trae precio unitario, así que SIGMA lo calcula como <i>valor del stock ÷ cantidad en stock</i> (promedio de lo que hay en el almacén). ${P.res.precio_calculado} artículos tienen precio; los otros ${P.res.sin_precio} no tienen stock y quedan <b>sin precio</b>: para presupuestarlos hace falta un listado de SAP que traiga el precio (por ejemplo el precio medio variable o el estándar).</p>`;
+  else if(I.map.precio==null)html+=`<p class="warn">No se eligió la columna de precio ni stock/valor: se importarán los códigos pero sin precios.</p>`;
+  if(P.res.derivado)html+=`<p><small>El archivo no trae grupo de artículos, así que se agrupa por el <b>tipo de artículo</b> (primera palabra de la descripción: RODAMIENTO, CABLE, RETEN…).</small></p>`;
   P.filas.forEach(f=>{if(f._nuevo){const o=I.over[f.Grupo_Articulos];if(o)f.Estado=o;}});
   const G={};
   P.filas.forEach(f=>{const g=G[f.Grupo_Articulos]||(G[f.Grupo_Articulos]={n:0,nuevos:0,c:{Mecanico:0,Revisar:0,Descartado:0},ej:[]});
@@ -346,14 +398,17 @@ function drawImp(){
   html+=`<div class="kp"><div><b>${P.res.leidas}</b>Filas leídas</div><div><b>${nuevos}</b>Artículos nuevos</div><div><b>${existentes}</b>Ya conocidos</div>
    <div><b>${cambios}</b>Con cambio de precio</div><div><b class="${P.res.sin_precio?'warn':''}">${P.res.sin_precio}</b>Sin precio en el archivo</div></div>`;
   if(P.res.duplicadas||P.res.sin_codigo)html+=`<p><small>${P.res.duplicadas?P.res.duplicadas+' filas repetidas (mismo código) se unificaron. ':''}${P.res.sin_codigo?P.res.sin_codigo+' filas sin código se ignoraron.':''}</small></p>`;
-  html+=`<p><b>Clasificación propuesta:</b> ${tot.Mecanico} de mecánica · ${tot.Revisar} para revisar · ${tot.Descartado} a descartar. Corregila por grupo; los artículos que ya conocés mantienen la decisión anterior.</p>
-   <div class="sc"><table><tr><th>Grupo de artículos</th><th class="num">Artículos</th><th class="num">Nuevos</th><th>Propuesta automática</th><th>Qué hacer con los nuevos</th><th>Ejemplos</th></tr>`+
-   Object.keys(G).sort((a,b)=>G[b].n-G[a].n).slice(0,200).map(k=>{const g=G[k],o=I.over[k]||'';return `<tr><td>${esc(k)}</td><td class="num">${g.n}</td><td class="num">${g.nuevos}</td>
+  html+=`<p><label><input type="checkbox" ${I.soloRev?'checked':''} onchange="S.sap.imp.soloRev=this.checked;drawImp()"> Mostrar solo los grupos con artículos <b>para revisar</b> (los demás ya tienen propuesta clara)</label></p>
+   <p><b>Clasificación propuesta:</b> ${tot.Mecanico} de mecánica · ${tot.Revisar} para revisar · ${tot.Descartado} a descartar. Corregila por grupo; los artículos que ya conocés mantienen la decisión anterior.</p>
+   <div class="sc"><table><tr><th>${P.res.derivado?'Tipo de artículo':'Grupo de artículos'}</th><th class="num">Artículos</th><th class="num">Nuevos</th><th>Propuesta automática</th><th>Qué hacer con los nuevos</th><th>Ejemplos</th></tr>`+
+   Object.keys(G).filter(k=>!I.soloRev||G[k].c.Revisar>0).sort((a,b)=>G[b].n-G[a].n).slice(0,I.verTodos?300:40).map(k=>{const g=G[k],o=I.over[k]||'';return `<tr><td>${esc(k)}</td><td class="num">${g.n}</td><td class="num">${g.nuevos}</td>
     <td><small>${g.c.Mecanico} mecánica · ${g.c.Revisar} revisar · ${g.c.Descartado} descartar</small></td>
-    <td>${g.nuevos?`<select onchange="I_over(this,${esc(JSON.stringify(k)).replace(/'/g,'&#39;')})"><option value="">Según la propuesta</option>
+    <td>${g.nuevos?`<select style="min-width:170px" onchange="I_over(this,${esc(JSON.stringify(k)).replace(/'/g,'&#39;')})"><option value="">Según la propuesta</option>
      ${[['Mecanico','Todos de mecánica'],['Revisar','Todos para revisar'],['Descartado','Descartar todos']].map(([v,l])=>`<option value="${v}" ${o===v?'selected':''}>${l}</option>`).join('')}</select>`:'—'}</td>
     <td><small>${g.ej.map(esc).join(' · ')}</small></td></tr>`;}).join('')+`</table></div>`;
-  if(Object.keys(G).length>200)html+=`<p><small>Se muestran los 200 grupos más grandes.</small></p>`;
+  const vis=Object.keys(G).filter(k=>!I.soloRev||G[k].c.Revisar>0).length;
+  if(vis>40&&!I.verTodos)html+=`<p><button class="b" onclick="S.sap.imp.verTodos=true;drawImp()">Ver los ${vis-40} grupos restantes (de a pocos artículos)</button></p>`;
+  html+=`<p><small>No hace falta decidir todo ahora: lo que no corrijas queda como <b>«Para revisar»</b> en el catálogo, donde podés buscarlo y marcarlo después.</small></p>`;
   html+=`<div class="bar"><label><input type="checkbox" ${I.reaplicar?'checked':''} onchange="S.sap.imp.reaplicar=this.checked;drawImp()"> Volver a clasificar también los artículos ya conocidos</label>
    <button class="b" id="btnImp" onclick="confirmarImportacion()">Importar ${P.filas.length} artículos</button> <button class="b" onclick="S.sap.imp=null;$('sapf').value='';drawImp()">Cancelar</button></div></div>`;
   box.innerHTML=html;
