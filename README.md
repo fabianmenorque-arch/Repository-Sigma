@@ -199,3 +199,7 @@ En *Repuestos → Catálogo SAP → Conciliar* el botón **Ver qué nombres camb
       el editor de Apps Script (▶ Ejecutar) — si nunca pediste el permiso
       de Drive por ahí, las fotos de los informes no se van a guardar aunque
       parezca que subieron bien.
+
+### Pantalla Repuestos (simplificada)
+
+Tres pestañas: **Equipos y repuestos** (se elige el equipo y se abre su lista de repuestos), **Presupuesto** (total, costo de cada repuesto y exportar; las opciones de criticidad, stock compartido y ajuste anual están en «Opciones del presupuesto») y **Datos de SAP** (1 cargar el listado, 2 aplicar precios y nombres, 3 catálogo). Lo avanzado (columnas detectadas, reclasificar conocidos, deshacer nombres, total por sector) queda plegado.
