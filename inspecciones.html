@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Inspección de bombas | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="sigma-utils.js"></script>
+<style>
+  .badge-normal{color:#5cf0bd;background:rgba(46,230,166,.16);}
+  .badge-alerta{color:#ffc35e;background:rgba(255,176,32,.18);}
+  .badge-critico{color:#ff8a9d;background:rgba(255,88,118,.18);}
+  .badge-riesgo-para-personas{color:#fff;background:#e0334f;}
+  .badge-sin{color:var(--steel-400);background:rgba(167,159,201,.14);}
+
+  .grupo-titulo{margin:1.3rem 0 .5rem;font-size:.82rem;font-weight:700;color:var(--amber-400);text-transform:uppercase;letter-spacing:.05em;}
+  .item{display:flex;gap:.8rem;align-items:center;justify-content:space-between;flex-wrap:wrap;
+        padding:.6rem .2rem;border-bottom:1px solid var(--line);}
+  .item .texto{flex:1 1 320px;font-size:.9rem;line-height:1.35;}
+  .item.falla .texto{color:#ff8a9d;font-weight:600;}
+  .opciones{display:flex;gap:.35rem;}
+  .opciones label{margin:0;cursor:pointer;text-transform:none;letter-spacing:0;font-size:.78rem;}
+  .opciones input{position:absolute;opacity:0;width:1px;height:1px;}
+  .opciones span{display:inline-block;padding:.45rem .8rem;border-radius:999px;border:1px solid var(--line);
+                 background:var(--steel-800);color:var(--steel-400);font-weight:600;min-width:5.6rem;text-align:center;}
+  .opciones input:checked + span.ok{background:rgba(46,230,166,.2);border-color:#2ee6a6;color:#5cf0bd;}
+  .opciones input:checked + span.falla{background:rgba(255,88,118,.22);border-color:#ff5876;color:#ff8a9d;}
+  .opciones input:checked + span.na{background:rgba(167,159,201,.2);border-color:var(--steel-400);color:var(--steel-200);}
+  .opciones input:focus-visible + span{box-shadow:0 0 0 3px var(--amber-glow);}
+  .check-linea{display:flex;gap:.6rem;align-items:center;margin:.4rem 0;}
+  .check-linea input{width:auto;}
+  .check-linea label{margin:0;text-transform:none;letter-spacing:0;font-size:.88rem;color:var(--steel-200);}
+  .resultado-previo{display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.8rem 1rem;margin:1rem 0;
+                    border-radius:var(--radius-sm);background:var(--steel-800);border:1px solid var(--line);}
+  .resultado-previo .detalle{font-size:.82rem;color:var(--steel-400);flex:1 1 260px;}
+  .acciones-form{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:1rem;}
+  .aviso-ot{padding:.9rem 1rem;border-radius:var(--radius-sm);background:rgba(139,108,242,.14);border:1px solid var(--amber-500);margin-bottom:1rem;}
+  details.config summary{cursor:pointer;font-weight:700;color:var(--steel-200);}
+  details.config[open] summary{margin-bottom:.8rem;}
+  td input,td select{min-width:110px;}
+  .rondas{display:flex;gap:.3rem;flex-wrap:wrap;}
+  .ronda{display:inline-block;padding:.18rem .5rem;border-radius:999px;font-size:.72rem;font-weight:700;border:1px solid var(--line);cursor:help;}
+  .ronda.ok{color:#5cf0bd;background:rgba(46,230,166,.14);border-color:rgba(46,230,166,.4);}
+  .ronda.venc{color:#ffc35e;background:rgba(255,176,32,.16);border-color:rgba(255,176,32,.5);}
+  .ronda.sin{color:var(--steel-400);background:rgba(167,159,201,.12);}
+  .pasos-derrame{margin:.4rem 0 .2rem 1.6rem;padding:.7rem 1rem;border-radius:var(--radius-sm);background:rgba(255,88,118,.1);border:1px solid rgba(255,88,118,.4);font-size:.84rem;}
+  .pasos-derrame ol{margin:.3rem 0 0;padding-left:1.2rem;}
+  .guia h3{margin:1rem 0 .4rem;font-size:.85rem;color:var(--amber-400);text-transform:uppercase;letter-spacing:.05em;}
+</style>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="panel-head"><h1>Inspección de bombas · Control ambiental</h1></div>
+
+  <div class="kpi-grid" id="kpis">
+    <div class="plate kpi-tile"><div class="kpi-label">Bombas en el alcance</div><div class="kpi-value" id="k-total">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">Normal</div><div class="kpi-value" id="k-normal">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">En alerta</div><div class="kpi-value" id="k-alerta">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">Críticas o con riesgo</div><div class="kpi-value" id="k-critico">—</div></div>
+    <div class="plate kpi-tile"><div class="kpi-label">Sin inspección</div><div class="kpi-value" id="k-sin">—</div></div>
+  </div>
+
+
+  <!-- Guía del procedimiento -->
+  <div class="plate panel guia">
+    <details class="config">
+      <summary>Guía del procedimiento de inspección</summary>
+      <h3>Niveles, frecuencia y responsable</h3>
+      <div class="table-scroll" style="max-height:none;"><table class="sigma-table">
+        <thead><tr><th>Nivel</th><th>Frecuencia</th><th>Responsable</th><th>Alcance</th></tr></thead>
+        <tbody>
+          <tr><td>1 · Ronda sensorial</td><td>Cada turno</td><td>Operador</td><td>Ruido, olor, fugas, temperatura al tacto, vibración percibida</td></tr>
+          <tr><td>2 · Inspección visual</td><td>Semanal</td><td>Encargado</td><td>Nivel de aceite, sellado, fijaciones</td></tr>
+          <tr><td>3 · Medición de parámetros de interés</td><td>Mensual</td><td>Supervisor</td><td>Vibración, termografía, alineación, lubricación</td></tr>
+          <tr><td>4 · Inspección detallada</td><td>Anual o en parada</td><td>Supervisor</td><td>Equipo detenido: huelgos, acople, base, estado interno</td></tr>
+        </tbody>
+      </table></div>
+      <p style="color:var(--steel-400);font-size:.8rem;margin:.5rem 0 0;">Cada nivel incluye los puntos de los anteriores. La frecuencia se aumenta en bombas críticas (sin equipo de reserva, con producto abrasivo o a alta temperatura).</p>
+      <h3>Criterios de aceptación (referenciales)</h3>
+      <div class="table-scroll" style="max-height:none;"><table class="sigma-table">
+        <thead><tr><th>Variable</th><th>Normal</th><th>Alerta</th><th>Acción inmediata</th></tr></thead>
+        <tbody>
+          <tr><td>Temperatura de rodamiento (°C)</td><td>Hasta 70, estable</td><td>70 a 90</td><td>Más de 90 o suba rápida</td></tr>
+          <tr><td>Fuga del sello mecánico</td><td>Ninguna visible</td><td>Gota ocasional</td><td>Goteo continuo o chorro</td></tr>
+          <tr><td>Nivel de aceite</td><td>En el visor, aceite claro</td><td>Bajo o turbio</td><td>Vacío o con agua</td></tr>
+          <tr><td>Ruido</td><td>Uniforme</td><td>Zumbido o roce leve</td><td>Golpeteo, chirrido o cavitación</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Qué pasa con cada clasificación</h3>
+      <div class="table-scroll" style="max-height:none;"><table class="sigma-table">
+        <thead><tr><th>Clase</th><th>Acción</th><th>Plazo</th></tr></thead>
+        <tbody>
+          <tr><td>Normal</td><td>Registrar y continuar</td><td>Próxima ronda</td></tr>
+          <tr><td>Alerta</td><td>Orden de trabajo programada; aumentar frecuencia de inspección</td><td>Antes de 7 días</td></tr>
+          <tr><td>Crítico</td><td>Avisar al supervisor, preparar la parada y ejecutar la corrección</td><td>Inmediato o primera ventana</td></tr>
+          <tr><td>Riesgo para personas</td><td>Detener el equipo si es seguro y bloquear; avisar de inmediato</td><td>En el acto</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Ante un derrame o fuga al ambiente</h3>
+      <ol style="margin:.2rem 0 0;padding-left:1.2rem;font-size:.86rem;line-height:1.5;" id="pasos-derrame-guia"></ol>
+      <h3>Roles</h3>
+      <p style="font-size:.85rem;line-height:1.5;margin:0;">Operador: ronda por turno y aviso inmediato de anomalías. Engrasador de turno: recorrido de engrase y aviso obligatorio al encargado ante cualquier desvío. Encargado de turno: evalúa la gravedad y decide la intervención o informa al supervisor mecánico. Supervisor mecánico: revisa hallazgos, prioriza órdenes de trabajo y establece procedimientos.</p>
+    </details>
+  </div>
+
+  <!-- Formulario de inspección -->
+  <div class="plate panel" id="panel-form" hidden>
+    <div class="panel-head"><h2 id="form-titulo">Nueva inspección</h2></div>
+    <p style="margin:0 0 1rem;color:var(--steel-400);font-size:.85rem;" id="form-sub"></p>
+    <form id="form-insp" autocomplete="off">
+      <div class="field-row">
+        <div class="field">
+          <label for="f-nivel">Nivel de inspección</label>
+          <select id="f-nivel">
+            <option value="1">1 · Ronda sensorial (cada turno)</option>
+            <option value="2">2 · Inspección visual (semanal)</option>
+            <option value="3">3 · Medición de parámetros (mensual)</option>
+            <option value="4">4 · Inspección detallada (anual o en parada)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-fecha">Fecha y hora de la inspección</label>
+          <input type="datetime-local" id="f-fecha" required>
+        </div>
+        <div class="field">
+          <label for="f-estado">Estado de la bomba</label>
+          <select id="f-estado"><option>En marcha</option><option>Detenida</option></select>
+        </div>
+      </div>
+
+      <div id="checklist"></div>
+
+      <div class="grupo-titulo">Parámetros observados (opcional)</div>
+      <div class="field-row">
+        <div class="field"><label for="f-temp">Temperatura de rodamiento (°C)</label><input type="text" id="f-temp" inputmode="decimal" placeholder="Ej: 68"></div>
+        <div class="field"><label for="f-fuga">Fuga del sello mecánico</label>
+          <select id="f-fuga"><option value="">—</option><option>Ninguna visible</option><option>Gota ocasional</option><option>Goteo continuo o chorro</option></select></div>
+        <div class="field"><label for="f-aceite">Nivel de aceite</label>
+          <select id="f-aceite"><option value="">—</option><option>En el visor, aceite claro</option><option>Bajo o turbio</option><option>Vacío o con agua</option></select></div>
+        <div class="field"><label for="f-ruido">Ruido</label>
+          <select id="f-ruido"><option value="">—</option><option>Uniforme</option><option>Zumbido o roce leve</option><option>Golpeteo, chirrido o cavitación</option></select></div>
+      </div>
+
+      <div class="grupo-titulo">Situaciones que elevan la clasificación</div>
+      <div class="check-linea"><input type="checkbox" id="f-derrame"><label for="f-derrame">Hay derrame o fuga que llega al suelo, a un canal o a un desagüe</label></div>
+      <div class="pasos-derrame" id="pasos-derrame" hidden><strong>Ante un derrame o fuga al ambiente</strong><ol id="pasos-derrame-lista"></ol></div>
+      <div class="check-linea"><input type="checkbox" id="f-riesgo"><label for="f-riesgo">Riesgo para las personas (producto peligroso, protección faltante, sobrecalentamiento extremo)</label></div>
+
+      <div class="field" style="margin-top:1rem;">
+        <label for="f-obs">Observaciones</label>
+        <textarea id="f-obs" rows="3" maxlength="1000" placeholder="Ruido, fugas, fijaciones, estado general…"></textarea>
+      </div>
+
+      <div class="resultado-previo" id="previo"></div>
+
+      <div class="acciones-form">
+        <button type="submit" id="btn-guardar">Guardar inspección</button>
+        <button type="button" class="secondary" id="btn-cancelar">Cancelar</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="resultado" hidden></div>
+
+  <!-- Bombas del alcance -->
+  <div class="filter-bar">
+    <div class="field"><label for="b-texto">Buscar</label><input type="text" id="b-texto" placeholder="Bomba, código, sector o servicio…"></div>
+    <div class="field" style="max-width:200px;"><label for="b-prio">Prioridad ambiental</label>
+      <select id="b-prio"><option value="">Todas</option><option>Alta</option><option>Media</option><option>Baja</option></select></div>
+    <div class="field" style="max-width:220px;"><label for="b-estado">Última inspección</label>
+      <select id="b-estado"><option value="">Todas</option><option value="Sin inspección">Sin inspección</option><option>Normal</option><option>Alerta</option><option>Crítico</option><option>Riesgo para personas</option></select></div>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head"><h2>Bombas en el control ambiental</h2></div>
+    <div class="table-scroll" style="max-height:none;">
+      <table class="sigma-table" id="tabla-bombas">
+        <thead><tr><th>Bomba</th><th>Servicio</th><th>Prioridad</th><th>Última inspección</th><th title="Verde: al día. Naranja: vencida. Gris: sin registro">Rondas</th><th></th></tr></thead>
+        <tbody><tr><td colspan="6" class="empty-state">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Definir qué bombas entran (jefe / administrador) -->
+  <div class="plate panel" data-requiere="actualizar_ambiental">
+    <details class="config" id="config">
+      <summary>Definir las bombas del control ambiental</summary>
+      <p style="color:var(--steel-400);font-size:.85rem;margin:0 0 .8rem;">Elegí la prioridad ambiental de cada bomba según el producto que bombea y adónde iría una fuga. Las bombas sin prioridad quedan fuera de las rondas.</p>
+      <div class="filter-bar"><div class="field"><label for="c-texto">Buscar bomba</label><input type="text" id="c-texto" placeholder="Nombre, código o sector…"></div></div>
+      <div class="table-scroll">
+        <table class="sigma-table" id="tabla-config">
+          <thead><tr><th>Bomba</th><th>Prioridad ambiental</th><th>Servicio (qué bombea)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="acciones-form"><button type="button" id="btn-config">Guardar cambios</button></div>
+    </details>
+  </div>
+
+  <!-- Historial -->
+  <div class="plate panel">
+    <div class="panel-head"><h2>Historial de inspecciones</h2></div>
+    <div class="filter-bar">
+      <div class="field"><label for="h-equipo">Bomba</label><select id="h-equipo"><option value="">Todas</option></select></div>
+      <div class="field" style="max-width:200px;"><label for="h-clase">Clase</label>
+        <select id="h-clase"><option value="">Todas</option><option>Normal</option><option>Alerta</option><option>Crítico</option><option>Riesgo para personas</option></select></div>
+    </div>
+    <div class="table-scroll" style="max-height:520px;">
+      <table class="sigma-table" id="tabla-hist">
+        <thead><tr><th style="min-width:120px;">Fecha y hora</th><th>Bomba</th><th>Nivel</th><th>Inspector</th><th>Clase</th><th>Hallazgos</th><th>OT</th></tr></thead>
+        <tbody><tr><td colspan="7" class="empty-state">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<datalist id="servicios-tipicos"></datalist>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("inspecciones");
+
+/* ---------------------------------------------------------------
+   Puntos de verificación del procedimiento. Los "id" y el "nivel" tienen que
+   coincidir con ITEMS_INSPECCION de Code.gs (el servidor vuelve a validar y
+   a clasificar: lo de acá es la comodidad de mostrar el resultado previo).
+   --------------------------------------------------------------- */
+const GRUPOS = {m:"Con la bomba en marcha", g:"Estado general del equipo", a:"Control ambiental", d:"Con la bomba detenida (nivel 4)"};
+const ITEMS = [
+  {id:"m1",nivel:1,texto:"Ruido: sin golpeteo, chirridos ni sonido de grava (cavitación)"},
+  {id:"m2",nivel:1,texto:"Vibración: sin aumento perceptible frente a la ronda anterior"},
+  {id:"m3",nivel:2,texto:"Presión de succión y descarga estables y dentro del rango de operación"},
+  {id:"m4",nivel:3,texto:"Corriente del motor dentro del valor de placa y sin oscilaciones"},
+  {id:"m5",nivel:1,texto:"Temperatura de rodamientos y carcasa del motor sin elevación anormal"},
+  {id:"m6",nivel:1,texto:"Sellado: sin goteo excesivo en sello mecánico (o goteo normal en empaquetadura)"},
+  {id:"m7",nivel:2,texto:"Instrumentos locales (manómetros, termómetros) legibles y operativos"},
+  {id:"g1",nivel:1,texto:"Sin fugas en bridas, juntas, drenajes ni conexiones"},
+  {id:"g2",nivel:2,texto:"Tornillos de base, carcasa y acople completos y ajustados"},
+  {id:"g3",nivel:1,texto:"Guarda del acople colocada y en buen estado"},
+  {id:"g4",nivel:2,texto:"Nivel y color del aceite correctos; respiradero limpio; grasa según plan"},
+  {id:"g5",nivel:2,texto:"Tuberías y soportes sin tensiones ni vibración; sin deformación de la base"},
+  {id:"g6",nivel:2,texto:"Corrosión, pintura y orden y limpieza del entorno"},
+  {id:"g7",nivel:2,texto:"Ventilación del motor libre, sin acumulación de bagazo, polvo o producto"},
+  {id:"a1",nivel:1,texto:"Contención (bandeja, muro o cubeto) íntegra, limpia y sin líquido acumulado"},
+  {id:"a2",nivel:2,texto:"Drenaje de la contención cerrado y sin conexión directa a canal o desagüe"},
+  {id:"a3",nivel:1,texto:"Sin manchas, charcos, goteos ni humedad en el suelo alrededor de la bomba"},
+  {id:"a4",nivel:1,texto:"Sin rastros de producto en canaletas, zanjas o alcantarillas cercanas"},
+  {id:"a5",nivel:1,texto:"Sello, bridas y válvulas sin fuga; goteras de purga recogidas y no al piso"},
+  {id:"a6",nivel:2,texto:"Alarmas de nivel o de fuga operativas, si la bomba las tiene"},
+  {id:"a7",nivel:2,texto:"Kit antiderrame completo y señalizado cerca del equipo"},
+  {id:"a8",nivel:1,texto:"Olores o espuma anormales avisados al área ambiental"},
+  {id:"d1",nivel:4,texto:"Alineación y estado del acople (elemento flexible, huelgas)"},
+  {id:"d2",nivel:4,texto:"Juego axial y radial del eje; giro libre a mano"},
+  {id:"d3",nivel:4,texto:"Estado de sello o empaquetadura y camisas del eje"},
+  {id:"d4",nivel:4,texto:"Desgaste visible de rodete, anillos de desgaste y carcasa si se abre"},
+  {id:"d5",nivel:4,texto:"Pata coja y estado de la bancada"}
+];
+const CLASES = ["Normal","Alerta","Crítico","Riesgo para personas"];
+const FUGA = ["Ninguna visible","Gota ocasional","Goteo continuo o chorro"];
+const ACEITE = ["En el visor, aceite claro","Bajo o turbio","Vacío o con agua"];
+const RUIDO = ["Uniforme","Zumbido o roce leve","Golpeteo, chirrido o cavitación"];
+const TEMP_ALERTA = 70, TEMP_CRITICA = 90;
+const PLAZOS = ["", "antes de 7 días", "inmediato o en la primera ventana", "en el acto"];
+
+/* Frecuencia de cada nivel, en horas. El nivel 1 es "cada turno": se asume turno de 8 h (planta 24 h, 3 turnos). */
+const FRECUENCIA_H = {1: 8, 2: 24 * 7, 3: 24 * 30, 4: 24 * 365};
+const FRECUENCIA_TXT = {1: "cada turno", 2: "semanal", 3: "mensual", 4: "anual o en parada"};
+
+/* Servicios típicos del ingenio y su prioridad ambiental sugerida (tabla "Alcance" del procedimiento). */
+const SERVICIOS = [
+  {n: "Melaza, mieles y jugo", p: "Alta"},
+  {n: "Combustibles, aceites y lubricantes", p: "Alta"},
+  {n: "Agua de lavado de gases y cenizas de calderas", p: "Alta"},
+  {n: "Soda cáustica, ácidos y químicos de limpieza o tratamiento", p: "Alta"},
+  {n: "Cachaza y lodos", p: "Media"},
+  {n: "Agua caliente y de condensados", p: "Media"},
+  {n: "Agua fría de refrigeración o bombas de vacío", p: "Baja"}
+];
+const PASOS_DERRAME = [
+  "Si es seguro hacerlo, detener la bomba y cerrar succión y descarga.",
+  "Contener el producto con barreras, arena o material absorbente como bagazo, sin dejar que llegue a drenajes ni a cursos de agua.",
+  "Avisar de inmediato al supervisor y al área de medio ambiente y seguridad, para tomar acciones.",
+  "Recoger y disponer el residuo según el plan de gestión de residuos de la planta.",
+  "Registrar el evento con fotos y causa probable, y cargar la orden de trabajo de reparación.",
+  "Evaluar si corresponde informar a la autoridad ambiental competente, según la normativa aplicable y el criterio del área ambiental."
+];
+
+/* ---------------- Rondas al día / vencidas ----------------
+   Una inspección de nivel N cubre también los niveles menores (la lista es acumulativa).
+   Para cada nivel se toma la última inspección de ese nivel o de uno mayor. */
+function estadoRondas(cod){
+  const ahora = Date.now();
+  const propias = inspecciones.filter(i => i.Codigo_Equipo === cod);
+  return [1, 2, 3, 4].map(n => {
+    let t = 0;
+    propias.forEach(i => { if(parseInt(i.Nivel, 10) >= n){ const x = new Date(i.Fecha_Hora).getTime() || 0; if(x > t) t = x; } });
+    if(!t) return {n, estado: "sin", detalle: `Nivel ${n} (${FRECUENCIA_TXT[n]}): sin registro`};
+    const horas = (ahora - t) / 36e5;
+    const vencida = horas > FRECUENCIA_H[n];
+    const ultima = sigmaFmtFechaHora(new Date(t).toISOString());
+    return {n, estado: vencida ? "venc" : "ok", detalle: `Nivel ${n} (${FRECUENCIA_TXT[n]}): última ${ultima}${vencida ? " — vencida" : ""}`};
+  });
+}
+const chipsRondas = cod => `<div class="rondas">${estadoRondas(cod).map(r =>
+  `<span class="ronda ${r.estado}" title="${sigmaEsc(r.detalle)}">N${r.n}</span>`).join("")}</div>`;
+
+document.getElementById("pasos-derrame-lista").innerHTML = PASOS_DERRAME.map(t => `<li>${sigmaEsc(t)}</li>`).join("");
+document.getElementById("pasos-derrame-guia").innerHTML = PASOS_DERRAME.map(t => `<li>${sigmaEsc(t)}</li>`).join("");
+document.getElementById("servicios-tipicos").innerHTML = SERVICIOS.map(x => `<option value="${sigmaEsc(x.n)}">${sigmaEsc(x.p)}</option>`).join("");
+document.getElementById("f-derrame").addEventListener("change", ev => { document.getElementById("pasos-derrame").hidden = !ev.target.checked; });
+
+let equipos = [], inspecciones = [];
+let bombaActual = null;
+let respuestas = {};
+
+const esBomba = e => /^BV-[A-Z]{2}-B\d{3}$/.test(e.Codigo_SIGMA || "") || /bomba/i.test(e.Maquina || "");
+const enAlcance = e => !!(e.Prioridad_Ambiental || "").trim();
+const nombreBomba = cod => { const e = equipos.find(x => x.Codigo_SIGMA === cod); return e ? e.Maquina : cod; };
+const badgeClase = c => c ? sigmaBadge("", c) : `<span class="badge badge-sin">Sin inspección</span>`;
+function ahoraLocalInput(){ const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,16); }
+
+function ultimaPorBomba(){
+  const m = {};
+  inspecciones.forEach(i => {
+    const t = new Date(i.Fecha_Hora).getTime() || 0;
+    if(!m[i.Codigo_Equipo] || t >= m[i.Codigo_Equipo]._t) m[i.Codigo_Equipo] = {...i, _t: t};
+  });
+  return m;
+}
+
+/* ---------------- Clasificación (espejo de clasificarInspeccion_ en Code.gs) ---------------- */
+function clasificar(nivel, resp, med, flags){
+  let rango = 0; const hallazgos = [];
+  const sube = (r, t) => { if(r > rango) rango = r; if(t) hallazgos.push(t); };
+  ITEMS.forEach(it => { if(it.nivel <= nivel && resp[it.id] === "falla") sube(1, it.texto); });
+  if(med.temp !== null && isFinite(med.temp)){
+    if(med.temp > TEMP_CRITICA) sube(2, `Temperatura de rodamiento ${med.temp} °C (más de ${TEMP_CRITICA})`);
+    else if(med.temp > TEMP_ALERTA) sube(1, `Temperatura de rodamiento ${med.temp} °C (más de ${TEMP_ALERTA})`);
+  }
+  if(med.fuga > 0) sube(med.fuga, "Fuga del sello mecánico: " + FUGA[med.fuga]);
+  if(med.aceite > 0) sube(med.aceite, "Nivel de aceite: " + ACEITE[med.aceite]);
+  if(med.ruido > 0) sube(med.ruido, "Ruido: " + RUIDO[med.ruido]);
+  if(flags.derrame) sube(2, "Derrame o fuga al ambiente");
+  if(flags.riesgo) sube(3, "Riesgo para las personas");
+  return {rango, clase: CLASES[rango], hallazgos};
+}
+
+function leerMediciones(){
+  const t = document.getElementById("f-temp").value.replace(",", ".").trim();
+  const idx = (id, lista) => Math.max(lista.indexOf(document.getElementById(id).value), 0);
+  return {temp: t === "" ? null : Number(t), fuga: idx("f-fuga", FUGA), aceite: idx("f-aceite", ACEITE), ruido: idx("f-ruido", RUIDO)};
+}
+function leerFlags(){ return {derrame: document.getElementById("f-derrame").checked, riesgo: document.getElementById("f-riesgo").checked}; }
+const nivelActual = () => parseInt(document.getElementById("f-nivel").value, 10);
+
+/* ---------------- Lista de verificación ---------------- */
+function pintarChecklist(){
+  const nivel = nivelActual();
+  let html = "";
+  Object.keys(GRUPOS).forEach(g => {
+    const items = ITEMS.filter(i => i.id[0] === g && i.nivel <= nivel);
+    if(!items.length) return;
+    html += `<div class="grupo-titulo">${sigmaEsc(GRUPOS[g])}</div>`;
+    items.forEach(i => {
+      const r = respuestas[i.id] || "";
+      html += `<div class="item ${r === "falla" ? "falla" : ""}" data-item="${i.id}">
+        <div class="texto">${sigmaEsc(i.texto)}</div>
+        <div class="opciones">
+          ${[["ok","Conforme"],["falla","No conforme"],["na","No aplica"]].map(([v, t]) =>
+            `<label><input type="radio" name="it-${i.id}" value="${v}" ${r === v ? "checked" : ""}><span class="${v}">${t}</span></label>`).join("")}
+        </div>
+      </div>`;
+    });
+  });
+  document.getElementById("checklist").innerHTML = html;
+  actualizarPrevio();
+}
+
+function actualizarPrevio(){
+  const nivel = nivelActual();
+  const cl = clasificar(nivel, respuestas, leerMediciones(), leerFlags());
+  const faltan = ITEMS.filter(i => i.nivel <= nivel && !respuestas[i.id]).length;
+  const el = document.getElementById("previo");
+  let detalle;
+  if(faltan) detalle = `Faltan ${faltan} punto${faltan === 1 ? "" : "s"} por responder.`;
+  else if(cl.rango === 0) detalle = "Todo dentro de los criterios. No se genera orden de trabajo.";
+  else detalle = `Se creará una orden de trabajo (o se actualizará la ya abierta de esta bomba). Plazo: ${PLAZOS[cl.rango]}.`;
+  el.innerHTML = `<strong>Clasificación prevista</strong> ${sigmaBadge("", cl.clase)}
+    <span class="detalle">${sigmaEsc(detalle)}${cl.hallazgos.length ? "<br>" + sigmaEsc(cl.hallazgos.join(" · ")) : ""}</span>`;
+}
+
+/* ---------------- Abrir / cerrar formulario ---------------- */
+function abrirForm(cod){
+  const e = equipos.find(x => x.Codigo_SIGMA === cod);
+  if(!e) return;
+  bombaActual = cod;
+  respuestas = {};
+  document.getElementById("form-insp").reset();
+  document.getElementById("f-fecha").value = ahoraLocalInput();
+  document.getElementById("f-fecha").max = ahoraLocalInput();
+  document.getElementById("form-titulo").textContent = "Inspección · " + (e.Maquina || cod);
+  document.getElementById("form-sub").textContent = [e.Sector, e.Ubicacion, cod, e.Servicio_Ambiental].filter(Boolean).join(" · ");
+  document.getElementById("resultado").hidden = true;
+  document.getElementById("pasos-derrame").hidden = true;
+  document.getElementById("panel-form").hidden = false;
+  pintarChecklist();
+  document.getElementById("panel-form").scrollIntoView({behavior:"smooth", block:"start"});
+}
+function cerrarForm(){ document.getElementById("panel-form").hidden = true; bombaActual = null; }
+
+document.getElementById("f-nivel").addEventListener("change", pintarChecklist);
+document.getElementById("checklist").addEventListener("change", ev => {
+  const inp = ev.target;
+  if(!inp.name || !inp.name.startsWith("it-")) return;
+  const id = inp.name.slice(3);
+  respuestas[id] = inp.value;
+  const fila = inp.closest(".item");
+  if(fila) fila.classList.toggle("falla", inp.value === "falla");
+  actualizarPrevio();
+});
+["f-temp","f-fuga","f-aceite","f-ruido","f-derrame","f-riesgo"].forEach(id => {
+  document.getElementById(id).addEventListener("input", actualizarPrevio);
+  document.getElementById(id).addEventListener("change", actualizarPrevio);
+});
+document.getElementById("btn-cancelar").addEventListener("click", cerrarForm);
+
+document.getElementById("form-insp").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  if(!bombaActual) return;
+  const nivel = nivelActual();
+  const faltan = ITEMS.filter(i => i.nivel <= nivel && !respuestas[i.id]);
+  if(faltan.length){
+    sigmaToast("Falta responder: " + faltan[0].texto);
+    const fila = document.querySelector(`[data-item="${faltan[0].id}"]`);
+    if(fila) fila.scrollIntoView({behavior:"smooth", block:"center"});
+    return;
+  }
+  const f = leerFlags();
+  const payload = {
+    Codigo_Equipo: bombaActual,
+    Nivel: nivel,
+    Fecha_Hora: new Date(document.getElementById("f-fecha").value).toISOString(),
+    Estado_Bomba: document.getElementById("f-estado").value,
+    Respuestas: {...respuestas},
+    Temp_Rodamiento_C: document.getElementById("f-temp").value,
+    Fuga_Sello: document.getElementById("f-fuga").value,
+    Nivel_Aceite: document.getElementById("f-aceite").value,
+    Ruido: document.getElementById("f-ruido").value,
+    Derrame_Ambiente: f.derrame,
+    Riesgo_Personas: f.riesgo,
+    Observaciones: document.getElementById("f-obs").value
+  };
+  const btn = document.getElementById("btn-guardar");
+  btn.disabled = true; btn.textContent = "Guardando…";
+  try{
+    if(!sigmaPuede("registrar_inspeccion")) throw new Error("Tu rol no permite registrar inspecciones.");
+    const r = await sigmaApi("registrar_inspeccion", payload);
+    mostrarResultado(r);
+    cerrarForm();
+    await cargar();
+  }catch(err){
+    sigmaToast("No se pudo guardar: " + err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Guardar inspección";
+  }
+});
+
+function mostrarResultado(r){
+  const el = document.getElementById("resultado");
+  let ot = "";
+  if(r.Nro_Orden){
+    const accion = r.orden_nueva ? "Se creó la orden de trabajo" : (r.orden_escalada ? "Se elevó a prioridad Alta la orden ya abierta" : "Ya había una orden abierta para esta bomba");
+    ot = `<br>${accion} <a href="informes.html?orden=${encodeURIComponent(r.Nro_Orden)}"><strong>${sigmaEsc(r.Nro_Orden)}</strong></a>.`;
+  }
+  el.className = "aviso-ot";
+  el.innerHTML = `Inspección guardada: ${sigmaBadge("", r.Clase)}${ot}`;
+  el.hidden = false;
+  el.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+/* ---------------- Tabla de bombas del alcance ---------------- */
+function pintarBombas(){
+  const ult = ultimaPorBomba();
+  const q = document.getElementById("b-texto").value.trim().toLowerCase();
+  const prio = document.getElementById("b-prio").value;
+  const est = document.getElementById("b-estado").value;
+  const todas = equipos.filter(esBomba).filter(enAlcance);
+
+  // KPIs
+  const cuenta = {normal:0, alerta:0, critico:0, sin:0};
+  todas.forEach(e => {
+    const u = ult[e.Codigo_SIGMA];
+    if(!u) cuenta.sin++;
+    else if(u.Clase === "Normal") cuenta.normal++;
+    else if(u.Clase === "Alerta") cuenta.alerta++;
+    else cuenta.critico++;
+  });
+  document.getElementById("k-total").textContent = todas.length;
+  document.getElementById("k-normal").textContent = cuenta.normal;
+  document.getElementById("k-alerta").textContent = cuenta.alerta;
+  document.getElementById("k-critico").textContent = cuenta.critico;
+  document.getElementById("k-sin").textContent = cuenta.sin;
+
+  const orden = {"Alta":0, "Media":1, "Baja":2};
+  const filas = todas
+    .filter(e => !prio || e.Prioridad_Ambiental === prio)
+    .filter(e => { const c = ult[e.Codigo_SIGMA] ? ult[e.Codigo_SIGMA].Clase : "Sin inspección"; return !est || c === est; })
+    .filter(e => !q || [e.Maquina, e.Codigo_SIGMA, e.Sector, e.Servicio_Ambiental].join(" ").toLowerCase().includes(q))
+    .sort((a, b) => (orden[a.Prioridad_Ambiental] ?? 9) - (orden[b.Prioridad_Ambiental] ?? 9) || (a.Maquina || "").localeCompare(b.Maquina || ""));
+
+  const tbody = document.querySelector("#tabla-bombas tbody");
+  if(!todas.length){
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Todavía no hay bombas en el control ambiental. ${sigmaPuede("actualizar_ambiental") ? "Marcalas abajo en «Definir las bombas del control ambiental»." : "Pedile a un Jefe o Administrador que las defina."}</td></tr>`;
+    return;
+  }
+  if(!filas.length){ tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Ninguna bomba coincide con el filtro.</td></tr>`; return; }
+  tbody.innerHTML = filas.map(e => {
+    const u = ult[e.Codigo_SIGMA];
+    return `<tr>
+      <td class="equipo-celda"><span class="nombre">${sigmaEsc(e.Maquina || e.Codigo_SIGMA)}</span><span class="codigo">${sigmaEsc(e.Codigo_SIGMA)}${e.Sector ? " · " + sigmaEsc(e.Sector) : ""}</span></td>
+      <td>${sigmaEsc(e.Servicio_Ambiental || "—")}</td>
+      <td>${sigmaBadge("", e.Prioridad_Ambiental)}</td>
+      <td>${u ? `${badgeClase(u.Clase)}<div style="font-size:.74rem;color:var(--steel-400);margin-top:.2rem;">Nivel ${sigmaEsc(u.Nivel)} · ${sigmaEsc(sigmaFmtFechaHora(u.Fecha_Hora))}</div>` : badgeClase("")}</td>
+      <td>${chipsRondas(e.Codigo_SIGMA)}</td>
+      <td style="white-space:nowrap;">
+        <button type="button" data-requiere="registrar_inspeccion" data-insp="${sigmaEsc(e.Codigo_SIGMA)}">Inspeccionar</button>
+        <button type="button" class="secondary" data-hist="${sigmaEsc(e.Codigo_SIGMA)}">Historial</button>
+      </td>
+    </tr>`;
+  }).join("");
+  sigmaAplicarPermisos(tbody);
+}
+document.querySelector("#tabla-bombas tbody").addEventListener("click", ev => {
+  const b = ev.target.closest("button");
+  if(!b) return;
+  if(b.dataset.insp) abrirForm(b.dataset.insp);
+  if(b.dataset.hist){
+    document.getElementById("h-equipo").value = b.dataset.hist;
+    pintarHistorial();
+    document.getElementById("tabla-hist").scrollIntoView({behavior:"smooth", block:"center"});
+  }
+});
+["b-prio","b-estado"].forEach(id => document.getElementById(id).addEventListener("change", pintarBombas));
+document.getElementById("b-texto").addEventListener("input", sigmaDebounce(pintarBombas, 200));
+
+/* ---------------- Historial ---------------- */
+function pintarHistorial(){
+  const sel = document.getElementById("h-equipo");
+  const actual = sel.value;
+  const cods = [...new Set(inspecciones.map(i => i.Codigo_Equipo))].sort((a, b) => nombreBomba(a).localeCompare(nombreBomba(b)));
+  sel.innerHTML = `<option value="">Todas</option>` + cods.map(c => `<option value="${sigmaEsc(c)}">${sigmaEsc(nombreBomba(c))}</option>`).join("");
+  sel.value = cods.includes(actual) ? actual : "";
+  const clase = document.getElementById("h-clase").value;
+  const filas = inspecciones
+    .filter(i => !sel.value || i.Codigo_Equipo === sel.value)
+    .filter(i => !clase || i.Clase === clase)
+    .sort((a, b) => new Date(b.Fecha_Hora) - new Date(a.Fecha_Hora))
+    .slice(0, 100);
+  const tbody = document.querySelector("#tabla-hist tbody");
+  if(!filas.length){ tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Todavía no hay inspecciones registradas.</td></tr>`; return; }
+  tbody.innerHTML = filas.map(i => `<tr>
+    <td>${sigmaEsc(sigmaFmtFechaHora(i.Fecha_Hora))}</td>
+    <td class="equipo-celda"><span class="nombre">${sigmaEsc(nombreBomba(i.Codigo_Equipo))}</span><span class="codigo">${sigmaEsc(i.Codigo_Equipo)}</span></td>
+    <td>${sigmaEsc(i.Nivel)}</td>
+    <td>${sigmaEsc(i.Inspector || i.Registrado_Por || "—")}</td>
+    <td>${badgeClase(i.Clase)}</td>
+    <td style="white-space:pre-wrap;max-width:420px;">${sigmaEsc(i.Hallazgos || "—")}${i.Observaciones ? `<div style="color:var(--steel-400);font-size:.78rem;margin-top:.25rem;">${sigmaEsc(i.Observaciones)}</div>` : ""}</td>
+    <td>${i.Nro_Orden ? `<a href="informes.html?orden=${encodeURIComponent(i.Nro_Orden)}">${sigmaEsc(i.Nro_Orden)}</a>` : "—"}</td>
+  </tr>`).join("");
+}
+["h-equipo","h-clase"].forEach(id => document.getElementById(id).addEventListener("change", pintarHistorial));
+
+/* ---------------- Definir bombas del alcance (jefe / administrador) ---------------- */
+function pintarConfig(){
+  const q = document.getElementById("c-texto").value.trim().toLowerCase();
+  const filas = equipos.filter(esBomba)
+    .filter(e => !q || [e.Maquina, e.Codigo_SIGMA, e.Sector].join(" ").toLowerCase().includes(q))
+    .sort((a, b) => (a.Sector || "").localeCompare(b.Sector || "") || (a.Maquina || "").localeCompare(b.Maquina || ""));
+  const tbody = document.querySelector("#tabla-config tbody");
+  tbody.innerHTML = filas.map(e => `<tr data-cod="${sigmaEsc(e.Codigo_SIGMA)}">
+    <td class="equipo-celda"><span class="nombre">${sigmaEsc(e.Maquina || e.Codigo_SIGMA)}</span><span class="codigo">${sigmaEsc(e.Codigo_SIGMA)}${e.Sector ? " · " + sigmaEsc(e.Sector) : ""}</span></td>
+    <td><select class="c-prio">${["", "Alta", "Media", "Baja"].map(p => `<option value="${p}" ${p === (e.Prioridad_Ambiental || "") ? "selected" : ""}>${p || "Fuera del alcance"}</option>`).join("")}</select></td>
+    <td><input type="text" class="c-srv" list="servicios-tipicos" maxlength="120" value="${sigmaEsc(e.Servicio_Ambiental || "")}" placeholder="Elegí uno o escribí el producto"></td>
+  </tr>`).join("") || `<tr><td colspan="3" class="empty-state">No se encontraron bombas.</td></tr>`;
+}
+document.querySelector("#tabla-config tbody").addEventListener("change", ev => {
+  if(!ev.target.classList.contains("c-srv")) return;
+  const sv = SERVICIOS.find(x => x.n === ev.target.value.trim());
+  const sel = ev.target.closest("tr").querySelector(".c-prio");
+  if(sv && sel && !sel.value) sel.value = sv.p;
+});
+document.getElementById("c-texto").addEventListener("input", sigmaDebounce(pintarConfig, 200));
+document.getElementById("btn-config").addEventListener("click", async () => {
+  const items = [];
+  document.querySelectorAll("#tabla-config tbody tr[data-cod]").forEach(tr => {
+    const cod = tr.dataset.cod;
+    const e = equipos.find(x => x.Codigo_SIGMA === cod);
+    const pri = tr.querySelector(".c-prio").value, srv = tr.querySelector(".c-srv").value.trim();
+    if(e && ((e.Prioridad_Ambiental || "") !== pri || (e.Servicio_Ambiental || "") !== srv)){
+      items.push({Codigo_SIGMA: cod, Prioridad_Ambiental: pri, Servicio_Ambiental: srv});
+    }
+  });
+  if(!items.length){ sigmaToast("No hay cambios para guardar."); return; }
+  const btn = document.getElementById("btn-config");
+  btn.disabled = true; btn.textContent = "Guardando…";
+  try{
+    const r = await sigmaApi("actualizar_ambiental", {items});
+    items.forEach(it => {
+      const e = equipos.find(x => x.Codigo_SIGMA === it.Codigo_SIGMA);
+      if(e){ e.Prioridad_Ambiental = it.Prioridad_Ambiental; e.Servicio_Ambiental = it.Servicio_Ambiental; }
+    });
+    sigmaToast(`Se actualizaron ${r.actualizados} bomba${r.actualizados === 1 ? "" : "s"}.`);
+    pintarBombas();
+  }catch(err){
+    sigmaToast("No se pudo guardar: " + err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Guardar cambios";
+  }
+});
+
+/* ---------------- Carga de datos ---------------- */
+async function cargar(){
+  try{
+    [equipos, inspecciones] = await Promise.all([sigmaFetchTab("Equipos"), sigmaFetchTab("Inspecciones").catch(() => [])]);
+    pintarBombas();
+    pintarHistorial();
+    pintarConfig();
+    const cod = new URLSearchParams(location.search).get("equipo");
+    if(cod && !bombaActual && sigmaPuede("registrar_inspeccion") && equipos.some(e => e.Codigo_SIGMA === cod)){
+      history.replaceState(null, "", location.pathname);
+      abrirForm(cod);
+    }
+  }catch(err){
+    document.querySelector("#tabla-bombas tbody").innerHTML = `<tr><td colspan="6" class="empty-state">No se pudo cargar: ${sigmaEsc(err.message)}</td></tr>`;
+  }
+}
+cargar();
+</script>
+</body>
+</html>

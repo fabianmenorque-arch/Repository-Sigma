@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-15-v18-nombres-sap";
+const VERSION_SCRIPT = "2026-10-20-v19-inspecciones-bombas";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -55,7 +55,8 @@ const SHEETS = {
   OBSERVACIONES: "Observaciones",
   CAMPANIAS: "Campanias",
   CATALOGO_SAP: "Catalogo_SAP",
-  SAP_DESCARTADOS: "SAP_Descartados"
+  SAP_DESCARTADOS: "SAP_Descartados",
+  INSPECCIONES: "Inspecciones"
 };
 
 /* ============================================================
@@ -186,6 +187,10 @@ function ejecutarEscritura_(accion, body) {
       return aplicarPreciosSap_(body);
     case "nombres_sap":
       return nombresSap_(body);
+    case "registrar_inspeccion":
+      return registrarInspeccion_(body);
+    case "actualizar_ambiental":
+      return actualizarAmbiental_(body);
     default:
       throw new Error("Acción desconocida: " + accion);
   }
@@ -542,19 +547,20 @@ const ROLES = {
 
 // Pestañas de datos del sistema (la hoja "Usuarios" NO está en ninguna lista: nadie puede leerla desde la web)
 const PESTANAS_OPERATIVAS = ["Equipos", "Mantenimientos", "Ordenes_de_Trabajo", "Imagenes", "Variables",
-  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones", "Campanias"];
+  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones", "Campanias", "Inspecciones"];
 const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios", "Catalogo_SAP", "SAP_Descartados"]);
 
 const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
   "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
   "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
-  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap"];
+  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap",
+  "registrar_inspeccion", "actualizar_ambiental"];
 
 // Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
 const ACCIONES_CON_AUTOR = ["crear_observacion", "crear_equipo", "crear_orden", "crear_mantenimiento", "registrar_medicion",
-  "subir_imagen", "crear_tarea_gestion", "crear_avance", "crear_analisis", "crear_parada"];
+  "subir_imagen", "crear_tarea_gestion", "crear_avance", "crear_analisis", "crear_parada", "registrar_inspeccion"];
 
-const PAGINAS_BASE = ["dashboard", "novedades", "equipos", "qr", "ordenes", "informes", "repuestos", "bombas", "observaciones"];
+const PAGINAS_BASE = ["dashboard", "novedades", "equipos", "qr", "ordenes", "informes", "repuestos", "bombas", "observaciones", "inspecciones"];
 
 const PERMISOS = {
   admin: {
@@ -571,7 +577,7 @@ const PERMISOS = {
   },
   tecnico: {
     leer: PESTANAS_OPERATIVAS,
-    escribir: ["crear_orden", "actualizar_orden", "registrar_medicion", "subir_imagen", "crear_avance", "crear_observacion"],
+    escribir: ["crear_orden", "actualizar_orden", "registrar_medicion", "subir_imagen", "crear_avance", "crear_observacion", "registrar_inspeccion"],
     paginas: PAGINAS_BASE,
     inicio: "dashboard.html"
   },
@@ -953,7 +959,9 @@ function filasDeHoja_(nombre, ss) {
     sheet = ss.getSheetByName(nombre);
     if (!sheet) throw new Error("La campaña archivada no tiene la pestaña '" + nombre + "'.");
   } else {
-    sheet = nombre === SHEETS.OBSERVACIONES ? hojaObservaciones_() : hoja_(nombre);
+    sheet = nombre === SHEETS.OBSERVACIONES ? hojaObservaciones_()
+          : nombre === SHEETS.INSPECCIONES ? hojaInspecciones_()
+          : hoja_(nombre);
   }
   if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) return [];
   const vals = sheet.getDataRange().getDisplayValues();
@@ -989,6 +997,242 @@ function sanitizarCuerpo_(obj) {
       sanitizarCuerpo_(v);
     }
   });
+}
+
+/* ============================================================
+   INSPECCIONES DE BOMBAS — control ambiental
+   ------------------------------------------------------------
+   Procedimiento de inspección de bombas (niveles 1 a 4). Cada inspección
+   queda en la pestaña "Inspecciones"; el servidor CLASIFICA el resultado
+   (Normal / Alerta / Crítico / Riesgo para personas) con los criterios del
+   procedimiento — nunca confía en la clase que diga el navegador — y, si no
+   es Normal, crea una orden de trabajo (o reutiliza la que ya está abierta
+   para ese equipo).
+   Los puntos de verificación de ITEMS_INSPECCION deben coincidir con los de
+   inspecciones.html (mismos "id").
+   ============================================================ */
+
+const COLUMNAS_INSPECCIONES = ["Nro_Inspeccion", "Codigo_Equipo", "Nivel", "Fecha_Hora", "Inspector", "Estado_Bomba", "Clase",
+  "Hallazgos", "Temp_Rodamiento_C", "Fuga_Sello", "Nivel_Aceite", "Ruido", "Derrame_Ambiente", "Riesgo_Personas",
+  "Observaciones", "Detalle", "Nro_Orden", "Registrado_Por", "Fecha_Registro"];
+
+const CLASES_INSPECCION = ["Normal", "Alerta", "Crítico", "Riesgo para personas"];
+const OPCIONES_FUGA_SELLO = ["Ninguna visible", "Gota ocasional", "Goteo continuo o chorro"];
+const OPCIONES_NIVEL_ACEITE = ["En el visor, aceite claro", "Bajo o turbio", "Vacío o con agua"];
+const OPCIONES_RUIDO = ["Uniforme", "Zumbido o roce leve", "Golpeteo, chirrido o cavitación"];
+const TEMP_RODAMIENTO_ALERTA_C = 70;    // más de 70 °C: Alerta
+const TEMP_RODAMIENTO_CRITICA_C = 90;   // más de 90 °C: Crítico
+const PRIORIDADES_AMBIENTALES = ["", "Alta", "Media", "Baja"];
+
+// nivel = primer nivel de inspección en que se revisa el punto (los niveles son acumulativos).
+const ITEMS_INSPECCION = [
+  {id: "m1", nivel: 1, texto: "Ruido: sin golpeteo, chirridos ni sonido de grava (cavitación)"},
+  {id: "m2", nivel: 1, texto: "Vibración: sin aumento perceptible frente a la ronda anterior"},
+  {id: "m3", nivel: 2, texto: "Presión de succión y descarga estables y dentro del rango de operación"},
+  {id: "m4", nivel: 3, texto: "Corriente del motor dentro del valor de placa y sin oscilaciones"},
+  {id: "m5", nivel: 1, texto: "Temperatura de rodamientos y carcasa del motor sin elevación anormal"},
+  {id: "m6", nivel: 1, texto: "Sellado: sin goteo excesivo en sello mecánico (o goteo normal en empaquetadura)"},
+  {id: "m7", nivel: 2, texto: "Instrumentos locales (manómetros, termómetros) legibles y operativos"},
+  {id: "g1", nivel: 1, texto: "Sin fugas en bridas, juntas, drenajes ni conexiones"},
+  {id: "g2", nivel: 2, texto: "Tornillos de base, carcasa y acople completos y ajustados"},
+  {id: "g3", nivel: 1, texto: "Guarda del acople colocada y en buen estado"},
+  {id: "g4", nivel: 2, texto: "Nivel y color del aceite correctos; respiradero limpio; grasa según plan"},
+  {id: "g5", nivel: 2, texto: "Tuberías y soportes sin tensiones ni vibración; sin deformación de la base"},
+  {id: "g6", nivel: 2, texto: "Corrosión, pintura y orden y limpieza del entorno"},
+  {id: "g7", nivel: 2, texto: "Ventilación del motor libre, sin acumulación de bagazo, polvo o producto"},
+  {id: "a1", nivel: 1, texto: "Contención (bandeja, muro o cubeto) íntegra, limpia y sin líquido acumulado"},
+  {id: "a2", nivel: 2, texto: "Drenaje de la contención cerrado y sin conexión directa a canal o desagüe"},
+  {id: "a3", nivel: 1, texto: "Sin manchas, charcos, goteos ni humedad en el suelo alrededor de la bomba"},
+  {id: "a4", nivel: 1, texto: "Sin rastros de producto en canaletas, zanjas o alcantarillas cercanas"},
+  {id: "a5", nivel: 1, texto: "Sello, bridas y válvulas sin fuga; goteras de purga recogidas y no al piso"},
+  {id: "a6", nivel: 2, texto: "Alarmas de nivel o de fuga operativas, si la bomba las tiene"},
+  {id: "a7", nivel: 2, texto: "Kit antiderrame completo y señalizado cerca del equipo"},
+  {id: "a8", nivel: 1, texto: "Olores o espuma anormales avisados al área ambiental"},
+  {id: "d1", nivel: 4, texto: "Alineación y estado del acople (elemento flexible, huelgas)"},
+  {id: "d2", nivel: 4, texto: "Juego axial y radial del eje; giro libre a mano"},
+  {id: "d3", nivel: 4, texto: "Estado de sello o empaquetadura y camisas del eje"},
+  {id: "d4", nivel: 4, texto: "Desgaste visible de rodete, anillos de desgaste y carcasa si se abre"},
+  {id: "d5", nivel: 4, texto: "Pata coja y estado de la bancada"}
+];
+
+function hojaInspecciones_() {
+  return hojaOCrear_(SHEETS.INSPECCIONES, COLUMNAS_INSPECCIONES);
+}
+
+/** Opción elegida (índice 0, 1 o 2) o -1 si no se eligió; error si no es una opción válida. */
+function indiceOpcion_(valor, opciones, etiqueta) {
+  const v = String(valor === undefined || valor === null ? "" : valor).trim();
+  if (!v) return -1;
+  const i = opciones.indexOf(v);
+  if (i === -1) throw new Error("Valor no válido en '" + etiqueta + "'.");
+  return i;
+}
+
+function verdadero_(v) { return v === true || v === "true" || v === "TRUE" || v === "Sí"; }
+
+/**
+ * Aplica los criterios del procedimiento. Devuelve {rango, clase, hallazgos}.
+ * rango: 0 Normal · 1 Alerta · 2 Crítico · 3 Riesgo para personas.
+ */
+function clasificarInspeccion_(nivel, respuestas, med, banderas) {
+  let rango = 0;
+  const hallazgos = [];
+  const sube = (r, texto) => { if (r > rango) rango = r; if (texto) hallazgos.push(texto); };
+
+  ITEMS_INSPECCION.forEach(it => {
+    if (it.nivel <= nivel && respuestas[it.id] === "falla") sube(1, it.texto);
+  });
+
+  if (med.temp !== null) {
+    if (med.temp > TEMP_RODAMIENTO_CRITICA_C) sube(2, "Temperatura de rodamiento " + med.temp + " °C (más de " + TEMP_RODAMIENTO_CRITICA_C + ")");
+    else if (med.temp > TEMP_RODAMIENTO_ALERTA_C) sube(1, "Temperatura de rodamiento " + med.temp + " °C (más de " + TEMP_RODAMIENTO_ALERTA_C + ")");
+  }
+  if (med.fuga > 0) sube(med.fuga, "Fuga del sello mecánico: " + OPCIONES_FUGA_SELLO[med.fuga]);
+  if (med.aceite > 0) sube(med.aceite, "Nivel de aceite: " + OPCIONES_NIVEL_ACEITE[med.aceite]);
+  if (med.ruido > 0) sube(med.ruido, "Ruido: " + OPCIONES_RUIDO[med.ruido]);
+  if (banderas.derrame) sube(2, "Derrame o fuga al ambiente");
+  if (banderas.riesgo) sube(3, "Riesgo para las personas");
+
+  return {rango: rango, clase: CLASES_INSPECCION[rango], hallazgos: hallazgos};
+}
+
+/** Orden abierta, generada por una inspección, para ese equipo (si la hay). */
+function ordenAbiertaDeInspeccion_(codigo) {
+  const abiertas = filasDeHoja_(SHEETS.ORDENES).filter(o =>
+    o.Codigo_Equipo === codigo && o.Estado !== "Completada" && String(o.Observaciones || "").indexOf("Generada por inspección") === 0);
+  return abiertas.length ? abiertas[abiertas.length - 1] : null;
+}
+
+/**
+ * body: { Codigo_Equipo, Nivel (1-4), Fecha_Hora, Estado_Bomba, Respuestas {id: "ok"|"falla"|"na"},
+ *         Temp_Rodamiento_C, Fuga_Sello, Nivel_Aceite, Ruido, Derrame_Ambiente, Riesgo_Personas, Observaciones }
+ */
+function registrarInspeccion_(body) {
+  const codigo = String(body.Codigo_Equipo || "").trim();
+  if (!codigo || !existeValor_(hoja_(SHEETS.EQUIPOS), "Codigo_SIGMA", codigo)) {
+    throw new Error("No existe el equipo " + codigo + ".");
+  }
+  const nivel = parseInt(body.Nivel, 10);
+  if ([1, 2, 3, 4].indexOf(nivel) === -1) throw new Error("El nivel de inspección tiene que ser 1, 2, 3 o 4.");
+  const estadoBomba = body.Estado_Bomba === "Detenida" ? "Detenida" : "En marcha";
+  const fechaHora = validarFechaHora_(body.Fecha_Hora);
+
+  const resp = (body.Respuestas && typeof body.Respuestas === "object") ? body.Respuestas : {};
+  const respuestas = {};
+  ITEMS_INSPECCION.forEach(it => {
+    if (it.nivel > nivel) return;
+    const r = resp[it.id];
+    if (r !== "ok" && r !== "falla" && r !== "na") throw new Error("Falta responder: " + it.texto);
+    respuestas[it.id] = r;
+  });
+
+  let temp = null;
+  const tTxt = String(body.Temp_Rodamiento_C === undefined ? "" : body.Temp_Rodamiento_C).replace(",", ".").trim();
+  if (tTxt) {
+    temp = Number(tTxt);
+    if (!isFinite(temp) || temp < -20 || temp > 400) throw new Error("La temperatura del rodamiento no es válida.");
+  }
+  const med = {
+    temp: temp,
+    fuga: Math.max(indiceOpcion_(body.Fuga_Sello, OPCIONES_FUGA_SELLO, "Fuga del sello"), 0),
+    aceite: Math.max(indiceOpcion_(body.Nivel_Aceite, OPCIONES_NIVEL_ACEITE, "Nivel de aceite"), 0),
+    ruido: Math.max(indiceOpcion_(body.Ruido, OPCIONES_RUIDO, "Ruido"), 0)
+  };
+  const banderas = {derrame: verdadero_(body.Derrame_Ambiente), riesgo: verdadero_(body.Riesgo_Personas)};
+  const obs = String(body.Observaciones || "").trim();
+  if (obs.length > 1000) throw new Error("La observación es muy larga (máximo 1000 caracteres).");
+
+  const cl = clasificarInspeccion_(nivel, respuestas, med, banderas);
+
+  // Orden de trabajo ante Alerta, Crítico o Riesgo para personas.
+  let nroOrden = "", ordenNueva = false, ordenEscalada = false;
+  const nroInspeccion = "INS-" + new Date().getTime();
+  if (cl.rango > 0) {
+    const plazo = cl.rango === 1 ? "antes de 7 días" : (cl.rango === 2 ? "inmediato o en la primera ventana" : "en el acto");
+    const existente = ordenAbiertaDeInspeccion_(codigo);
+    if (existente) {
+      nroOrden = existente.Nro_Orden;
+      if (cl.rango >= 2 && (existente.Prioridad !== "Alta" || existente.Tipo !== "Correctivo")) {
+        actualizarOrden_({Nro_Orden: nroOrden, Prioridad: "Alta", Tipo: "Correctivo"});
+        ordenEscalada = true;
+      }
+    } else {
+      nroOrden = "OT-" + new Date().getTime();
+      const descripcion = ("Inspección nivel " + nivel + " (" + cl.clase + "): " + cl.hallazgos.join("; ") +
+        ". Plazo: " + plazo + "." + (obs ? " Obs.: " + obs : "")).slice(0, 900);
+      crearOrden_({
+        Nro_Orden: nroOrden,
+        Codigo_Equipo: codigo,
+        Descripcion: descripcion,
+        Tipo: cl.rango === 1 ? "Predictivo" : "Correctivo",
+        Prioridad: cl.rango === 1 ? "Media" : "Alta",
+        Estado: "Pendiente",
+        Responsable: "",
+        Fecha_Creacion: ahoraISO_(),
+        Fecha_Inicio: "",
+        Fecha_Cierre_Real: "",
+        Observaciones: "Generada por inspección " + nroInspeccion
+      });
+      ordenNueva = true;
+    }
+  }
+
+  agregarFilaPorEncabezados_(hojaInspecciones_(), {
+    Nro_Inspeccion: nroInspeccion,
+    Codigo_Equipo: codigo,
+    Nivel: nivel,
+    Fecha_Hora: fechaHora,
+    Inspector: body.Registrado_Por || "",
+    Estado_Bomba: estadoBomba,
+    Clase: cl.clase,
+    Hallazgos: cl.hallazgos.join("; "),
+    Temp_Rodamiento_C: temp === null ? "" : temp,
+    Fuga_Sello: body.Fuga_Sello || "",
+    Nivel_Aceite: body.Nivel_Aceite || "",
+    Ruido: body.Ruido || "",
+    Derrame_Ambiente: banderas.derrame ? "Sí" : "",
+    Riesgo_Personas: banderas.riesgo ? "Sí" : "",
+    Observaciones: obs,
+    Detalle: JSON.stringify(respuestas),
+    Nro_Orden: nroOrden,
+    Registrado_Por: body.Registrado_Por || "",
+    Fecha_Registro: ahoraISO_()
+  });
+
+  return {accion: "registrar_inspeccion", Nro_Inspeccion: nroInspeccion, Clase: cl.clase, Hallazgos: cl.hallazgos,
+    Nro_Orden: nroOrden, orden_nueva: ordenNueva, orden_escalada: ordenEscalada};
+}
+
+/**
+ * Jefe/Administrador: marca qué bombas entran en el control ambiental.
+ * body.items = [{Codigo_SIGMA, Prioridad_Ambiental ("", Alta, Media, Baja), Servicio_Ambiental}]
+ */
+function actualizarAmbiental_(body) {
+  const sheet = hoja_(SHEETS.EQUIPOS);
+  asegurarColumna_(sheet, "Prioridad_Ambiental");
+  asegurarColumna_(sheet, "Servicio_Ambiental");
+  const h = encabezados_(sheet);
+  const cCod = h.indexOf("Codigo_SIGMA"), cPri = h.indexOf("Prioridad_Ambiental"), cSrv = h.indexOf("Servicio_Ambiental");
+  const n = Math.max(sheet.getLastRow() - 1, 0);
+  if (!n) return {accion: "actualizar_ambiental", actualizados: 0};
+
+  const mapa = {};
+  (body.items || []).forEach(it => {
+    const pri = String(it.Prioridad_Ambiental || "").trim();
+    if (PRIORIDADES_AMBIENTALES.indexOf(pri) === -1) throw new Error("Prioridad no válida: " + pri);
+    mapa[String(it.Codigo_SIGMA).trim()] = {pri: pri, srv: String(it.Servicio_Ambiental || "").trim().slice(0, 120)};
+  });
+  const codigos = sheet.getRange(2, cCod + 1, n, 1).getValues();
+  const rPri = sheet.getRange(2, cPri + 1, n, 1), rSrv = sheet.getRange(2, cSrv + 1, n, 1);
+  const vPri = rPri.getValues(), vSrv = rSrv.getValues();
+  let cambios = 0;
+  for (let i = 0; i < n; i++) {
+    const cod = String(codigos[i][0]).trim();
+    if (mapa.hasOwnProperty(cod)) { vPri[i][0] = mapa[cod].pri; vSrv[i][0] = seguro_(mapa[cod].srv); cambios++; }
+  }
+  rPri.setValues(vPri);
+  rSrv.setValues(vSrv);
+  return {accion: "actualizar_ambiental", actualizados: cambios};
 }
 
 /* ---------------- Operario: equipos asignados, datos y observaciones ---------------- */
