@@ -471,7 +471,11 @@ function drawConc(){
    <div class="plate" style="padding:1rem;margin-bottom:1rem"><b>Nombres</b>
     <p><small>Cada repuesto con código toma el nombre que tiene ese mismo código en SAP. Primero se muestra qué cambiaría; el nombre anterior queda guardado.</small></p>
     <div class="bar"><button id="btnNom" onclick="nombresSap('simular')">Ver qué nombres cambiarían</button></div>
-    <details><summary>Deshacer</summary><div class="bar"><button class="b" id="btnNomR" onclick="if(confirm('Se vuelven a poner los nombres que tenían antes de usar SAP. ¿Continuar?'))nombresSap('restaurar')">Restaurar nombres originales</button></div></details><div id="nomres"></div></div>`;
+    <details><summary>Deshacer</summary><div class="bar"><button class="b" id="btnNomR" onclick="if(confirm('Se vuelven a poner los nombres que tenían antes de usar SAP. ¿Continuar?'))nombresSap('restaurar')">Restaurar nombres originales</button></div></details><div id="nomres"></div></div>
+   <div class="plate" style="padding:1rem;margin-bottom:1rem"><b>Códigos</b>
+    <p><small>Cambia en bloque el código de los repuestos a partir de un Excel con dos columnas: <i>Designación</i> y <i>Código a usar</i>. Todos los repuestos con esa designación pasan a ese código. Primero se muestra qué cambiaría; el código anterior queda guardado y los costos ya cargados se mantienen.</small></p>
+    <div class="bar"><input type="file" id="codf" accept=".xlsx,.xls,.csv" onchange="leerArchivoCodigos(this.files[0])"></div><div id="codres"></div>
+    <details><summary>Deshacer</summary><div class="bar"><button class="b" id="btnCodR" onclick="if(confirm('Se vuelven a poner los códigos que tenían los repuestos antes de cambiarlos. ¿Continuar?'))codigosSap('restaurar')">Restaurar códigos originales</button></div></details></div>`;
   const r=A.res;
   if(r)$('concres').innerHTML=`<p><b>Resultado:</b> ${r.nuevos} costos nuevos · ${r.actualizados} actualizados · ${r.conservados} sin cambios · ${r.no_estan_en_sap} códigos que no están en SAP.</p>`+
    (r.cambios.length?`<div class="sc"><table><tr><th>Código</th><th>Repuesto</th><th class="num">Antes</th><th class="num">Ahora</th></tr>${r.cambios.map(x=>`<tr><td>${esc(x.Codigo)}</td><td>${esc(x.Nombre)}</td><td class="num">${x.Antes===''?'—':fmt(x.Antes)}</td><td class="num">${fmt(x.Despues)}</td></tr>`).join('')}</table></div>`:'')+
@@ -490,6 +494,55 @@ async function nombresSap(modo){
      (r.cambiados?`<div class="sc"><table><tr><th>Código</th><th>Nombre actual</th><th>Nombre en SAP</th></tr>${r.cambios.map(x=>`<tr><td>${esc(x.Codigo)}</td><td>${esc(x.Antes)}</td><td>${esc(x.Despues)}</td></tr>`).join('')}</table></div>`+(r.cambiados>r.cambios.length?`<p><small>Se muestran los primeros ${r.cambios.length}.</small></p>`:'')+
       `<div class="bar"><button class="b" onclick="if(confirm('Se van a reemplazar ${r.cambiados} nombres por los de SAP. ¿Continuar?'))nombresSap('aplicar')">Reemplazar ${r.cambiados} nombres por los de SAP</button></div>`:'');
   }catch(e){b.disabled=bR.disabled=false;sigmaToast('No se pudo: '+e.message);}
+}
+/* ---- cambio de códigos en bloque ---- */
+function leerArchivoCodigos(file){
+  if(!file)return;
+  if(file.size>5*1024*1024)return sigmaToast('El archivo es demasiado grande');
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const wb=XLSX.read(rd.result,{type:'array',raw:true});
+      let hallado=null;
+      for(const h of wb.SheetNames){
+        const m=XLSX.utils.sheet_to_json(wb.Sheets[h],{header:1,raw:true,defval:'',blankrows:false});
+        for(let i=0;i<Math.min(m.length,10)&&!hallado;i++){
+          const enc=(m[i]||[]).map(sinTilde),d=enc.indexOf('designacion'),c=enc.findIndex(x=>['codigo a usar','codigo nuevo','codigo sap nuevo'].includes(x));
+          if(d>=0&&c>=0)hallado={m,fila:i,d,c};
+        }
+        if(hallado)break;
+      }
+      if(!hallado)return sigmaToast('No encontré las columnas «Designación» y «Código a usar» en el archivo');
+      const cambios=[];
+      hallado.m.slice(hallado.fila+1).forEach(r=>{
+        const des=String(r[hallado.d]??'').trim(),cod=String(r[hallado.c]??'').trim();
+        if(des&&/^[A-Za-z0-9][A-Za-z0-9\-\/. ]{0,29}$/.test(cod))cambios.push({Designacion:des,Codigo_Nuevo:cod});
+      });
+      if(!cambios.length)return sigmaToast('El archivo no tiene filas con designación y código');
+      S.cod={archivo:file.name,cambios};codigosSap('simular');
+    }catch(e){sigmaToast('No se pudo leer el archivo: '+e.message);}
+  };
+  rd.readAsArrayBuffer(file);
+}
+async function codigosSap(modo){
+  const box=$('codres'),bR=$('btnCodR');
+  if(modo!=='restaurar'&&!(S.cod&&S.cod.cambios))return sigmaToast('Primero elegí el archivo');
+  if(bR)bR.disabled=true;
+  try{
+    const r=await sigmaApi('cambiar_codigos',modo==='restaurar'?{modo}:{modo,cambios:S.cod.cambios});
+    if(bR)bR.disabled=false;
+    if(modo!=='simular'){
+      const [rep,pre]=await Promise.all([sigmaFetchTab('Repuestos'),sigmaFetchTab('Precios').catch(()=>[])]);
+      S.rep=rep;S.pre={};pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
+    }
+    if(modo==='restaurar'){box.innerHTML=`<p><b>Listo:</b> ${r.restaurados} repuestos volvieron a su código original.</p>`;sigmaToast('Códigos restaurados');return;}
+    if(modo==='aplicar'){S.cod=null;$('codf').value='';box.innerHTML=`<p><b>Listo:</b> se cambió el código de ${r.cambiados} repuestos${r.costos_copiados?` y se mantuvieron ${r.costos_copiados} costos`:''}.</p>`;sigmaToast('Códigos actualizados');return;}
+    box.innerHTML=`<p><b>${esc(S.cod.archivo)}</b>: ${S.cod.cambios.length} designaciones leídas → ${r.cambiados} repuestos cambiarían de código · ${r.iguales} ya tienen ese código.</p>`+
+     (r.designaciones_sin_filas.length?`<p class="warn"><small>Designaciones que no existen en Repuestos (no hacen nada): ${r.designaciones_sin_filas.map(esc).join(', ')}</small></p>`:'')+
+     (r.fuera_de_sap.length?`<p class="warn"><small>Códigos nuevos que no están en el catálogo de SAP cargado: ${r.fuera_de_sap.map(esc).join(', ')}. Revisalos antes de aplicar.</small></p>`:'')+
+     (r.cambiados?`<div class="sc"><table><tr><th>Equipo</th><th>Repuesto</th><th>Designación</th><th>Código actual</th><th>Código nuevo</th></tr>${r.cambios.map(x=>`<tr><td>${esc(x.Equipo)}</td><td>${esc(x.Repuesto)}</td><td>${esc(x.Designacion)}</td><td>${esc(x.Antes)||'<small>(vacío)</small>'}</td><td>${esc(x.Despues)}</td></tr>`).join('')}</table></div>`+(r.cambiados>r.cambios.length?`<p><small>Se muestran los primeros ${r.cambios.length}.</small></p>`:'')+
+      `<div class="bar"><button onclick="if(confirm('Se va a cambiar el código de ${r.cambiados} repuestos. ¿Continuar?'))codigosSap('aplicar')">Cambiar el código de ${r.cambiados} repuestos</button></div>`:'');
+  }catch(e){if(bR)bR.disabled=false;sigmaToast('No se pudo: '+e.message);}
 }
 async function aplicarPrecios(){
   const modo=(document.querySelector('input[name=modo]:checked')||{}).value||'vacios';

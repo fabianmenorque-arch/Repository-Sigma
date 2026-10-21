@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-20-v19-inspecciones-bombas";
+const VERSION_SCRIPT = "2026-10-21-v20-cambio-codigos";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -187,6 +187,8 @@ function ejecutarEscritura_(accion, body) {
       return aplicarPreciosSap_(body);
     case "nombres_sap":
       return nombresSap_(body);
+    case "cambiar_codigos":
+      return cambiarCodigos_(body);
     case "registrar_inspeccion":
       return registrarInspeccion_(body);
     case "actualizar_ambiental":
@@ -553,7 +555,7 @@ const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos
 const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
   "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
   "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
-  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap",
+  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap", "cambiar_codigos",
   "registrar_inspeccion", "actualizar_ambiental"];
 
 // Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
@@ -1851,6 +1853,107 @@ function nombresSap_(body) {
   }
   r.accion = "nombres_sap";
   return r;
+}
+
+
+/**
+ * Cambia en bloque el código de los repuestos de los equipos.
+ * body.modo: "simular" (lista lo que cambiaría) | "aplicar" | "restaurar" (vuelve todos los códigos cambiados).
+ * body.cambios = [{Designacion, Codigo_Nuevo}]: todos los repuestos con esa designación pasan a ese código.
+ * El código anterior se guarda en la columna "Codigo_Original" (solo la primera vez). Los costos ya cargados
+ * se copian a la clave del código nuevo (el costo del código viejo no se borra, así se puede volver atrás).
+ */
+function cambiarCodigos_(body) {
+  const modo = ["aplicar", "restaurar"].indexOf(body.modo) >= 0 ? body.modo : "simular";
+  const sheet = hoja_(SHEETS.REPUESTOS);
+  const n = sheet.getLastRow() - 1;
+  if (n < 1) throw new Error("La pestaña Repuestos no tiene datos.");
+  const nuevoDe = new Map();
+  if (modo !== "restaurar") {
+    const lista = Array.isArray(body.cambios) ? body.cambios : [];
+    if (!lista.length) throw new Error("No llegó ningún cambio de código.");
+    if (lista.length > 1000) throw new Error("Son demasiados cambios (máximo 1000).");
+    lista.forEach(c => {
+      const d = normTexto_(c.Designacion), nuevo = String(c.Codigo_Nuevo == null ? "" : c.Codigo_Nuevo).trim();
+      if (!d) return;
+      if (!/^[A-Za-z0-9][A-Za-z0-9\-\/. ]{0,29}$/.test(nuevo)) throw new Error("Código inválido para «" + c.Designacion + "»: " + nuevo);
+      if (nuevoDe.has(d) && claveSap_(nuevoDe.get(d)) !== claveSap_(nuevo)) throw new Error("La designación «" + c.Designacion + "» aparece con dos códigos distintos.");
+      nuevoDe.set(d, nuevo);
+    });
+    if (!nuevoDe.size) throw new Error("No llegó ningún cambio de código.");
+  }
+  if (modo === "aplicar") asegurarColumna_(sheet, "Codigo_Original");
+  const h = encabezados_(sheet);
+  const cC = h.indexOf("Codigo_Repuesto"), cD = h.indexOf("Designacion"), cE = h.indexOf("Codigo_Equipo"), cN = h.indexOf("Nombre"), cO = h.indexOf("Codigo_Original");
+  if (cC < 0 || cD < 0) throw new Error("Faltan las columnas Codigo_Repuesto y Designacion en Repuestos.");
+  if (modo === "restaurar" && cO < 0) throw new Error("Todavía no se cambió ningún código.");
+  const vals = sheet.getRange(2, 1, n, h.length).getValues();
+
+  // códigos que existen en SAP (solo para avisar)
+  const ss = SpreadsheetApp.getActiveSpreadsheet(), enSap = new Set();
+  [SHEETS.CATALOGO_SAP, SHEETS.SAP_DESCARTADOS].forEach(t => {
+    const s = ss.getSheetByName(t);
+    if (s) leerHojaSap_(s, 1).forEach(f => enSap.add(claveSap_(f[0])));
+  });
+
+  const r = {modo, cambiados: 0, iguales: 0, restaurados: 0, designaciones_sin_filas: [], fuera_de_sap: [], cambios: [], costos_copiados: 0};
+  const tocadas = new Set(), vacio = "(vacío)";
+  const pares = new Map();   // clave de costo vieja -> {nueva, codigo, des, nom}
+  const outC = [], outO = [];
+  vals.forEach(f => {
+    let cod = f[cC], orig = cO >= 0 ? f[cO] : "";
+    if (modo === "restaurar") {
+      if (orig !== "" && orig != null) { cod = orig === vacio ? "" : orig; orig = ""; r.restaurados++; }
+    } else {
+      const d = normTexto_(f[cD]);
+      if (nuevoDe.has(d)) {
+        tocadas.add(d);
+        const nuevo = nuevoDe.get(d), actual = String(cod == null ? "" : cod).trim();
+        if (actual !== "" && claveSap_(actual) === claveSap_(nuevo)) r.iguales++;
+        else {
+          r.cambiados++;
+          if (r.cambios.length < 300) r.cambios.push({Equipo: cE >= 0 ? String(f[cE]) : "", Repuesto: cN >= 0 ? String(f[cN]) : "", Designacion: String(f[cD]), Antes: actual, Despues: nuevo});
+          if (enSap.size && !enSap.has(claveSap_(nuevo)) && r.fuera_de_sap.indexOf(nuevo) < 0) r.fuera_de_sap.push(nuevo);
+          if (modo === "aplicar") {
+            if (orig === "" || orig == null) orig = actual === "" ? vacio : cod;
+            pares.set(clavePrecio_(cod, f[cD], cN >= 0 ? f[cN] : ""), {nueva: clavePrecio_(nuevo, f[cD], cN >= 0 ? f[cN] : ""), codigo: nuevo, des: String(f[cD]), nom: cN >= 0 ? String(f[cN]) : ""});
+            cod = /^[1-9][0-9]*$/.test(nuevo) ? Number(nuevo) : seguro_(nuevo);
+          }
+        }
+      }
+    }
+    outC.push([cod]); outO.push([orig]);
+  });
+  if (modo !== "restaurar") nuevoDe.forEach((v, d) => { if (!tocadas.has(d)) r.designaciones_sin_filas.push(d); });
+  if (modo !== "simular") {
+    sheet.getRange(2, cC + 1, n, 1).setValues(outC);
+    sheet.getRange(2, cO + 1, n, 1).setNumberFormat("@").setValues(outO);
+  }
+  if (modo === "aplicar" && pares.size) r.costos_copiados = copiarCostos_(pares);
+  r.accion = "cambiar_codigos";
+  return r;
+}
+
+/** Copia el costo de la clave vieja a la nueva (si la nueva todavía no tiene). Devuelve cuántos copió. */
+function copiarCostos_(pares) {
+  const sp = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PRECIOS);
+  if (!sp || sp.getLastRow() < 2) return 0;
+  const h = encabezados_(sp), cK = h.indexOf("Clave_Repuesto");
+  if (cK < 0) return 0;
+  const filas = sp.getRange(2, 1, sp.getLastRow() - 1, h.length).getValues();
+  const existentes = new Set(filas.map(f => String(f[cK])));
+  const nuevas = [];
+  filas.forEach(f => {
+    const p = pares.get(String(f[cK]));
+    if (!p || existentes.has(p.nueva)) return;
+    existentes.add(p.nueva);
+    const g = f.slice();
+    g[cK] = p.nueva;
+    const iC = h.indexOf("Codigo_Repuesto"); if (iC >= 0) g[iC] = seguro_(p.codigo);
+    nuevas.push(g);
+  });
+  if (nuevas.length) sp.getRange(sp.getLastRow() + 1, 1, nuevas.length, h.length).setValues(nuevas);
+  return nuevas.length;
 }
 
 /* ============================================================
