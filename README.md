@@ -10,6 +10,7 @@ Repository-Sigma/
 ├── dashboard.html            ← Página de inicio: KPIs, gráficos, mediciones en vivo
 ├── ordenes.html              ← Alta y gestión de órdenes de trabajo
 ├── informes.html             ← Informe imprimible por orden: línea de tiempo + fotos antes/después
+├── inspecciones.html         ← Inspección de bombas (control ambiental): rondas por nivel con vencimientos, clasificación y OT automática
 ├── alta_nuevo_equipo.html    ← Alta de equipos nuevos
 ├── gestion_hojas.html        ← Estado de las pestañas de Sheets + exportar CSV
 └── equipos/
@@ -41,7 +42,7 @@ páginas lo comparten.
 
 | Pestaña                  | Columnas mínimas |
 |---------------------------|-------------------|
-| `Equipos`                 | Codigo_SIGMA, Sector, Ubicacion, Maquina, Modelo, Fabricante, Anio |
+| `Equipos`                 | Codigo_SIGMA, Sector, Ubicacion, Maquina, Modelo, Fabricante, Anio (+ Criticidad, Prioridad_Ambiental y Servicio_Ambiental, que el sistema agrega solo) |
 | `Mantenimientos`          | Codigo_Equipo, Tipo, Fecha_Inicio, Fecha_Fin (o Duracion_Horas), Descripcion |
 | `Ordenes_de_Trabajo`      | Nro_Orden, Codigo_Equipo, Descripcion, Tipo, Prioridad, Estado, Responsable, Fecha_Creacion, Fecha_Inicio, Fecha_Cierre_Real, Observaciones |
 | `Repuestos`               | Codigo_Equipo, Nombre, Marca, Designacion, Codigo_Repuesto, Stock |
@@ -49,6 +50,7 @@ páginas lo comparten.
 | `Gestion_Tareas`          | Nro_Tarea, Codigo_Equipo, Nro_Orden, Tipo, Descripcion, Responsable, Estado, Fecha_Creacion, Fecha_Resolucion |
 | `Avances_Orden`           | Nro_Avance, Nro_Orden, Codigo_Equipo, Responsable, Tareas_Realizadas, Accion, Valor_Solicitado, Fecha_Hora |
 | `Analisis_Sector`         | Fecha, Metrica, Valor, Unidad, Fuente_Archivo, Fecha_Carga |
+| `Inspecciones`            | Nro_Inspeccion, Codigo_Equipo, Nivel, Fecha_Hora, Inspector, Estado_Bomba, Clase, Hallazgos, Temp_Rodamiento_C, Fuga_Sello, Nivel_Aceite, Ruido, Derrame_Ambiente, Riesgo_Personas, Observaciones, Detalle, Nro_Orden, Registrado_Por, Fecha_Registro — se crea sola al registrar la primera inspección |
 | `Variables`               | Codigo_Equipo, Variable, Unidad — **catálogo**: qué variables se pueden medir en cada equipo y con qué unidad. Sin filas acá, la ficha del equipo no deja cargar mediciones. |
 | `Mediciones`              | Codigo_Equipo, Variable, Unidad, Valor, Fecha_Hora — las lecturas cargadas |
 
