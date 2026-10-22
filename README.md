@@ -205,3 +205,7 @@ En *Repuestos → Catálogo SAP → Conciliar* el botón **Ver qué nombres camb
 ### Pantalla Repuestos (simplificada)
 
 Tres pestañas: **Equipos y repuestos** (se elige el equipo y se abre su lista de repuestos), **Presupuesto** (total, costo de cada repuesto y exportar; las opciones de criticidad, stock compartido y ajuste anual están en «Opciones del presupuesto») y **Datos de SAP** (1 cargar el listado, 2 aplicar precios y nombres, 3 catálogo). Lo avanzado (columnas detectadas, reclasificar conocidos, deshacer nombres, total por sector) queda plegado.
+
+### Cambio de códigos en bloque
+
+En *Repuestos → Datos de SAP → Códigos* se elige un Excel con las columnas **Designación** y **Código a usar** (por ejemplo el de «materiales en duda»). Todos los repuestos con esa designación pasan a ese código. Antes de tocar nada se muestra la lista exacta (equipo, repuesto, código actual y nuevo), las designaciones que no existen y los códigos nuevos que no están en el catálogo de SAP. El código anterior queda en la columna `Codigo_Original`, los costos ya cargados se copian al código nuevo y **Restaurar códigos originales** deshace todo. Requiere Code.gs v20.
