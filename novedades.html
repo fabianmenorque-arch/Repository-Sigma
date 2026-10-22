@@ -119,8 +119,8 @@ function renderPendientes(ordenes, tareas){
     .map(o => ({
       tipo: "orden",
       nro: o.Nro_Orden,
-      titulo: `Orden ${o.Nro_Orden || ""} — ${o.Descripcion || "sin descripción"}`,
-      sub: `${nombreEquipo(o.Codigo_Equipo)} · ${o.Codigo_Equipo || "—"}`,
+      titulo: `Orden ${o.Nro_Orden || ""} — ${nombreEquipo(o.Codigo_Equipo)}`,
+      sub: o.Descripcion || "Sin descripción de la tarea",
       estado: o.Estado,
       fecha: sigmaParseDate(o.Fecha_Creacion) || new Date(0)
     }));
@@ -130,8 +130,8 @@ function renderPendientes(ordenes, tareas){
     .map(t => ({
       tipo: "tarea",
       nro: t.Nro_Tarea,
-      titulo: `Tarea ${t.Nro_Tarea || ""} — ${t.Descripcion || "sin descripción"}`,
-      sub: t.Codigo_Equipo ? `${nombreEquipo(t.Codigo_Equipo)} · ${t.Codigo_Equipo}` : "Gestión administrativa",
+      titulo: `Tarea ${t.Nro_Tarea || ""} — ${t.Codigo_Equipo ? nombreEquipo(t.Codigo_Equipo) : "Gestión administrativa"}`,
+      sub: t.Descripcion || "Sin descripción de la tarea",
       estado: "Pendiente",
       fecha: sigmaParseDate(t.Fecha_Creacion) || new Date(0)
     }));
@@ -223,8 +223,8 @@ async function cargarNovedades(){
       if(fCreacion){
         eventos.push({
           tipo:"orden", fecha:fCreacion,
-          titulo:`Orden creada — ${o.Descripcion || o.Nro_Orden || "sin descripción"}`,
-          sub:`${nombreEquipo(o.Codigo_Equipo)} · ${sigmaBadge("estado", o.Estado)}`
+          titulo:`Orden ${o.Nro_Orden || ""} — ${nombreEquipo(o.Codigo_Equipo)}`,
+          sub:`Creada · ${o.Descripcion || "sin descripción de la tarea"} · ${sigmaBadge("estado", o.Estado)}`
         });
       }
       if(o.Estado === "Completada"){
@@ -242,8 +242,8 @@ async function cargarNovedades(){
           `).join("")}</div>` : "";
           eventos.push({
             tipo:"orden", fecha:fCierre,
-            titulo:`Orden completada — ${o.Descripcion || o.Nro_Orden || "sin descripción"}`,
-            sub:`${nombreEquipo(o.Codigo_Equipo)} · ${o.Codigo_Equipo || "—"}`,
+            titulo:`Orden ${o.Nro_Orden || ""} — ${nombreEquipo(o.Codigo_Equipo)}`,
+            sub:`Completada · ${o.Descripcion || "sin descripción de la tarea"}`,
             extra
           });
         }
@@ -266,8 +266,8 @@ async function cargarNovedades(){
       if(fCreacion){
         eventos.push({
           tipo:"tarea", fecha:fCreacion,
-          titulo:`Tarea creada — ${t.Descripcion || t.Nro_Tarea || "sin descripción"}`,
-          sub: t.Codigo_Equipo ? nombreEquipo(t.Codigo_Equipo) : "Gestión administrativa"
+          titulo:`Tarea ${t.Nro_Tarea || ""} — ${t.Codigo_Equipo ? nombreEquipo(t.Codigo_Equipo) : "Gestión administrativa"}`,
+          sub:`Creada · ${t.Descripcion || "sin descripción de la tarea"}`
         });
       }
       if(t.Estado === "Resuelta"){
@@ -275,8 +275,8 @@ async function cargarNovedades(){
         if(fRes){
           eventos.push({
             tipo:"tarea", fecha:fRes,
-            titulo:`Tarea resuelta — ${t.Descripcion || t.Nro_Tarea || "sin descripción"}`,
-            sub: t.Codigo_Equipo ? nombreEquipo(t.Codigo_Equipo) : "Gestión administrativa"
+            titulo:`Tarea ${t.Nro_Tarea || ""} — ${t.Codigo_Equipo ? nombreEquipo(t.Codigo_Equipo) : "Gestión administrativa"}`,
+            sub:`Resuelta · ${t.Descripcion || "sin descripción de la tarea"}`
           });
         }
       }
@@ -298,7 +298,7 @@ async function cargarNovedades(){
       if(a.Accion) detalle += `<div class="timeline-detalle"><strong>Próximo paso:</strong> ${a.Accion}</div>`;
       eventos.push({
         tipo:"avance", fecha:f,
-        titulo:`Avance — ${equipoTitulo}`,
+        titulo:`Avance${a.Nro_Orden ? " " + a.Nro_Orden : ""} — ${equipoTitulo}`,
         sub: subPartes.join(" · "),
         extra: detalle
       });
