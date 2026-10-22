@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repuestos críticos · SIGMA</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="sigma-utils.js"></script>
+<style>
+.rp .tabs{display:flex;gap:.4rem;margin-bottom:1.3rem;border-bottom:1px solid var(--line)}
+.rp .tabs button{background:none;border:none;padding:.65rem 1.1rem;font-size:.85rem;font-weight:600;color:var(--steel-400);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.rp .tabs button.on{color:var(--amber-500);border-bottom-color:var(--amber-500)}
+.rp .bar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:1rem}
+.rp .bar label{display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--steel-200);text-transform:none;font-weight:500}
+.rp .bar input[type=checkbox],.rp .bar input[type=radio]{width:auto;margin:0}
+.rp button.b{background:var(--steel-900);color:var(--steel-200);border:1px solid var(--line)}
+.rp .sc{overflow-x:auto}.rp td input{min-width:80px}
+.rp .kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.3rem}
+.rp .kp div{background:var(--steel-900);border:1px solid var(--line);border-radius:var(--radius-sm);padding:.8rem 1rem;font-size:.8rem;color:var(--steel-400)}
+.rp .kp b{display:block;font-size:1.5rem;color:var(--steel-200)}
+.rp .warn{color:var(--amber-500)}.rp .num{text-align:right}
+.rp .bar input:not([type]),.rp .bar input[type=search],.rp .bar>select{flex:1 1 220px;width:auto;min-width:0}
+.rp .hint{color:var(--steel-400);font-size:.85rem;margin:-.4rem 0 1rem}
+.rp details{margin:.7rem 0}.rp summary{cursor:pointer;color:var(--steel-400);font-size:.82rem;font-weight:600;padding:.2rem 0}
+.rp details[open]>summary{margin-bottom:.5rem}
+.rp td small{color:var(--steel-400)}
+</style></head>
+<body>
+<div id="nav-slot"></div>
+<div class="container rp">
+  <div class="panel-head"><h1>Repuestos críticos</h1></div>
+  <p class="hint">Cargá los repuestos de cada equipo, completá sus costos y obtené el presupuesto del año.</p>
+  <div class="tabs" id="tabs"></div>
+  <div class="plate panel"><div id="view">Cargando…</div></div>
+</div>
+<script>
+document.getElementById('nav-slot').innerHTML=sigmaRenderNav('repuestos');
+const S={ajuste:0,sap:{cat:[],des:[],cargado:false,imp:null,q:'',est:'',libres:false,sel:new Set(),res:null},eq:[],rep:[],pre:{},tab:'eq',q:'',sf:'',crit:new Set(['A','B']),shared:false,sel:'',onlyNo:false,lines:[],list:[]};
+const $=id=>document.getElementById(id);
+new MutationObserver(()=>document.querySelectorAll('#view table:not(.sigma-table)').forEach(t=>t.classList.add('sigma-table'))).observe($('view'),{childList:true,subtree:true});
+const norm=s=>String(s||'').trim().toUpperCase().replace(/\s+/g,' ');
+const num=v=>parseFloat(String(v||'').replace(',','.'))||0;
+const fmt=n=>Math.round(n).toLocaleString('es-AR');
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const clave=r=>{const c=norm(r.Codigo_Repuesto),ok=c&&c!=='S/C';return (ok?c:'S/C')+'|'+norm(r.Designacion)+(ok?'':'|'+norm(r.Nombre));};
+const CR=['A','B','C','X'];
+const LBL={A:'A · crítico',B:'B · importante',C:'C · bajo demanda',X:'Fuera (stock general)'};
+
+function sugerir(e){
+  const c=e.Codigo_SIGMA||'',m=((e.Maquina||'')+' '+(e.Ubicacion||'')).toLowerCase();
+  if(/^BV-(GE|TL)-|-(AC001|AD001|EC001|GB001)$/.test(c))return 'X';
+  if(/tamiz/.test(m))return 'B';
+  if(/turbina|turbogenerador|turbo |reductor|rotor|catalina|alimentaci[oó]n|mesa de ca[nñ]a|conductora/.test(m)&&!/desagote/.test(m))return 'A';
+  if(/floculante|soda|lechada|ceniza|barro|agua caliente|desagote|reserva|lavado de|agitador|elevador|paletiz|cargadora|semillero/.test(m))return 'C';
+  if(/centr[ií]fuga|jugo|vac[ií]o|barom|nemo|masa cocida|miel|compresor|filtro|regulador|rastra|esparcidor|vti|vtf|melado|jarabe|magma|cocimiento|secador/.test(m))return 'B';
+  return 'C';
+}
+
+async function load(){
+  try{
+    const [eq,rep,pre]=await Promise.all([sigmaFetchTab('Equipos'),sigmaFetchTab('Repuestos'),sigmaFetchTab('Precios').catch(()=>[])]);
+    S.eq=eq;S.rep=rep;pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
+    render();
+  }catch(e){$('view').innerHTML='<p class="warn">No se pudieron leer los datos: '+esc(e.message)+'</p>';}
+}
+function render(){
+  const T=[['eq','Equipos y repuestos'],['pre','Presupuesto'],['sap','Datos de SAP']].filter(([t])=>t==='sap'?sigmaPuede('importar_catalogo_sap'):(t!=='pre'||sigmaPuedeLeer('Precios')));
+  $('tabs').innerHTML=T.map(([t,l])=>`<button class="${S.tab===t?'on':''}" onclick="irTab('${t}')">${l}</button>`).join('');
+  if(S.tab==='eq')(S.sel?viewRep:viewEq)();else({pre:viewPre,sap:viewSap})[S.tab]();
+}
+function irTab(t){S.tab=t;if(t==='eq')S.sel='';render();}
+
+/* ---------- EQUIPOS ---------- */
+function viewEq(){
+  const sec=[...new Set(S.eq.map(e=>e.Sector).filter(Boolean))].sort();
+  const sin=S.eq.filter(e=>!e.Criticidad).length;
+  const ph={Codigo_SIGMA:'Código del equipo',Maquina:'Nombre del equipo',Sector:'Sector',Ubicacion:'Ubicación',Modelo:'Modelo',Fabricante:'Fabricante','Año':'Año'};
+  $('view').innerHTML=`<div class="bar">
+    <input id="q" placeholder="Buscar equipo o código" value="${esc(S.q)}" oninput="S.q=this.value;drawEq()">
+    <select onchange="S.sf=this.value;drawEq()"><option value="">Todos los sectores</option>${sec.map(s=>`<option ${S.sf===s?'selected':''}>${s}</option>`).join('')}</select>
+    <button class="b" data-requiere="crear_equipo" onclick="$('nuevo').hidden=!$('nuevo').hidden">+ Agregar equipo</button></div>
+    ${sin?`<p class="hint" data-requiere="actualizar_criticidad"><span class="warn">${sin} equipos sin criticidad.</span> <button class="b" onclick="sugerirTodos()">Sugerir criticidad automáticamente</button></p>`:''}
+    <div id="nuevo" class="plate" style="padding:1rem;margin-bottom:1rem" data-requiere="crear_equipo" hidden>
+      <div class="bar">${['Codigo_SIGMA','Maquina','Sector'].map(k=>`<input id="n_${k}" placeholder="${ph[k]}">`).join('')}
+      <select id="n_Criticidad">${CR.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <details><summary>Más datos (opcional)</summary><div class="bar">${['Ubicacion','Modelo','Fabricante','Año'].map(k=>`<input id="n_${k}" placeholder="${ph[k]}">`).join('')}</div></details>
+      <button onclick="addEq()">Guardar equipo</button></div>
+    <div class="sc" id="tbl"></div>`;
+  drawEq();
+}
+function drawEq(){
+  const q=S.q.toLowerCase(),cnt={};S.rep.forEach(r=>cnt[r.Codigo_Equipo]=(cnt[r.Codigo_Equipo]||0)+1);
+  const rows=S.eq.filter(e=>(!S.sf||e.Sector===S.sf)&&(e.Codigo_SIGMA+' '+e.Maquina+' '+e.Ubicacion).toLowerCase().includes(q));
+  if(!rows.length){$('tbl').innerHTML='<p>No hay equipos que coincidan con la búsqueda.</p>';return;}
+  $('tbl').innerHTML=`<table><tr><th>Equipo</th><th>Criticidad</th><th>Repuestos</th></tr>`+
+   rows.map(e=>`<tr><td><b>${esc(e.Maquina)}</b><br><small>${esc(e.Codigo_SIGMA)} · ${esc(e.Sector)}${e.Ubicacion?' · '+esc(e.Ubicacion):''}</small></td>
+   <td><select data-requiere-bloquear="actualizar_criticidad" onchange="setCrit('${e.Codigo_SIGMA}',this.value)"><option value="">Sin clasificar</option>${CR.map(c=>`<option value="${c}" ${e.Criticidad===c?'selected':''}>${LBL[c]}</option>`).join('')}</select></td>
+   <td><button class="b" onclick="abrirRep('${e.Codigo_SIGMA}')">${cnt[e.Codigo_SIGMA]?cnt[e.Codigo_SIGMA]+' · Ver':'Cargar'}</button></td></tr>`).join('')+'</table>';
+}
+async function setCrit(cod,v){
+  S.eq.find(e=>e.Codigo_SIGMA===cod).Criticidad=v;
+  await sigmaPost('actualizar_criticidad',{items:[{Codigo_SIGMA:cod,Criticidad:v}]});sigmaToast('Criticidad guardada');
+}
+async function sugerirTodos(){
+  const items=S.eq.filter(e=>!e.Criticidad).map(e=>({Codigo_SIGMA:e.Codigo_SIGMA,Criticidad:sugerir(e)}));
+  if(!items.length||!confirm('Se asignará una criticidad sugerida a '+items.length+' equipos. Podés cambiarla después. ¿Continuar?'))return;
+  items.forEach(i=>S.eq.find(e=>e.Codigo_SIGMA===i.Codigo_SIGMA).Criticidad=i.Criticidad);
+  await sigmaPost('actualizar_criticidad',{items});sigmaToast('Sugerencia aplicada');viewEq();
+}
+async function addEq(){
+  const o={};['Codigo_SIGMA','Sector','Ubicacion','Maquina','Modelo','Fabricante','Año','Criticidad'].forEach(k=>o[k]=$('n_'+k).value.trim());
+  if(!o.Codigo_SIGMA||!o.Maquina)return sigmaToast('Faltan código y nombre del equipo');
+  if(S.eq.some(e=>e.Codigo_SIGMA===o.Codigo_SIGMA))return sigmaToast('Ese código ya existe');
+  await sigmaPost('crear_equipo',o);S.eq.push(o);sigmaToast('Equipo agregado');viewEq();
+}
+
+/* ---------- REPUESTOS DE UN EQUIPO ---------- */
+function abrirRep(c){S.sel=c;render();}
+function viewRep(){
+  const eq=S.eq.find(e=>e.Codigo_SIGMA===S.sel);
+  if(!eq){S.sel='';return viewEq();}
+  $('view').innerHTML=`<div class="bar"><button class="b" onclick="S.sel='';render()">← Volver a equipos</button>
+   <button data-requiere="guardar_repuesto" onclick="addRep()">+ Agregar repuesto</button></div>
+   <p><b>${esc(eq.Maquina)}</b><br><small>${esc(eq.Codigo_SIGMA)} · ${esc(eq.Sector)}${eq.Ubicacion?' · '+esc(eq.Ubicacion):''}</small></p><div class="sc" id="tbl"></div>`;
+  drawRep();
+}
+function drawRep(){
+  const F=['Nombre','Marca','Designacion','Codigo_Repuesto','Cant.'],H={Nombre:'Repuesto',Marca:'Marca',Designacion:'Designación',Codigo_Repuesto:'Código SAP','Cant.':'Cantidad'};
+  if(!S.rep.some(r=>r.Codigo_Equipo===S.sel)){$('tbl').innerHTML='<p>Este equipo todavía no tiene repuestos. Usá «+ Agregar repuesto».</p>';return;}
+  $('tbl').innerHTML=`<table><tr>${F.map(f=>`<th>${H[f]}</th>`).join('')}<th></th></tr>`+
+   S.rep.map((r,i)=>r.Codigo_Equipo!==S.sel?'':`<tr>${F.map((f,j)=>`<td><input data-requiere-bloquear="guardar_repuesto" id="r${i}_${j}" value="${esc(r[f])}"></td>`).join('')}
+   <td><button class="b" data-requiere="guardar_repuesto" onclick="saveRep(${i})">Guardar</button> <button class="b" data-requiere="eliminar_repuesto" onclick="delRep(${i})">Quitar</button></td></tr>`).join('')+'</table>';
+}
+function addRep(){if(!S.sel)return sigmaToast('Elegí un equipo primero');S.rep.push({Codigo_Equipo:S.sel,Nombre:'',Marca:'',Designacion:'',Codigo_Repuesto:'','Cant.':'',_nuevo:true});drawRep();}
+async function saveRep(i){
+  const r=S.rep[i],F=['Nombre','Marca','Designacion','Codigo_Repuesto','Cant.'],o={Codigo_Equipo:r.Codigo_Equipo};
+  F.forEach((f,j)=>o[f]=$(`r${i}_${j}`).value.trim());
+  if(!o.Nombre)return sigmaToast('El repuesto necesita un nombre');
+  await sigmaPost('guardar_repuesto',{...o,Orig_Nombre:r.Nombre,Orig_Designacion:r.Designacion,nuevo:!!r._nuevo});
+  Object.assign(r,o);delete r._nuevo;sigmaToast('Repuesto guardado');
+}
+async function delRep(i){
+  const r=S.rep[i];if(!confirm('¿Quitar este repuesto del equipo?'))return;
+  if(!r._nuevo)await sigmaPost('eliminar_repuesto',{Codigo_Equipo:r.Codigo_Equipo,Nombre:r.Nombre,Designacion:r.Designacion});
+  S.rep.splice(i,1);drawRep();sigmaToast('Repuesto quitado');
+}
+
+/* ---------- COSTOS Y PRESUPUESTO ---------- */
+function calc(){
+  const cr={},sc={};S.eq.forEach(e=>{cr[e.Codigo_SIGMA]=e.Criticidad||'?';sc[e.Codigo_SIGMA]=e.Sector||'?';});
+  const L={};
+  S.rep.forEach(r=>{
+    const c=cr[r.Codigo_Equipo]||'?';if(!S.crit.has(c))return;
+    const k=clave(r),s=sc[r.Codigo_Equipo]||'?',key=S.shared?k:k+'|'+s+'|'+c,q=num(r['Cant.']);
+    const it=L[key]||(L[key]={k,r,s,c,q:0});
+    it.q=S.shared?Math.max(it.q,q):it.q+q;
+  });
+  S.lines=Object.values(L);
+  const U={};S.lines.forEach(l=>{const u=U[l.k]||(U[l.k]={k:l.k,r:l.r,q:0});u.q+=l.q;});
+  S.list=Object.values(U).sort((a,b)=>(!!S.pre[a.k]-!!S.pre[b.k])||norm(a.r.Nombre).localeCompare(norm(b.r.Nombre)));
+}
+const precioBase=k=>num(S.pre[k]&&S.pre[k].Costo_Unitario);
+const precio=k=>precioBase(k)*(1+(S.ajuste||0)/100);
+function viewPre(){
+  const sin=S.eq.filter(e=>!e.Criticidad).length;
+  $('view').innerHTML=`<div id="sum"></div>
+   <div class="bar"><label><input type="checkbox" ${S.onlyNo?'checked':''} onchange="S.onlyNo=this.checked;drawList()"> Mostrar solo los que no tienen costo</label>
+   <button onclick="exportar()">Exportar a Excel</button></div>
+   <details ${S.opt?'open':''} ontoggle="S.opt=this.open"><summary>Opciones del presupuesto</summary><div class="bar">Incluir equipos de criticidad:
+   ${['A','B','C','?'].map(c=>`<label><input type="checkbox" ${S.crit.has(c)?'checked':''} onchange="this.checked?S.crit.add('${c}'):S.crit.delete('${c}');viewPre()"> ${c==='?'?'Sin clasificar ('+sin+')':c}</label>`).join(' ')}</div>
+   <div class="bar"><label><input type="checkbox" ${S.shared?'checked':''} onchange="S.shared=this.checked;viewPre()"> Stock compartido entre equipos (se toma la cantidad máxima, no la suma)</label>
+   <label title="Para proyectar el presupuesto del año próximo: sube o baja todos los costos por este porcentaje (no modifica los costos guardados)">Ajuste de costos año próximo (%) <input type="number" step="any" style="width:90px" value="${S.ajuste||''}" placeholder="0" onchange="S.ajuste=Number(this.value)||0;viewPre()"></label></div></details>
+   <div class="sc" id="tbl"></div>`;
+  calc();drawSum();drawList();
+}
+function drawSum(){
+  const M={},T={};let tot=0,sinP=new Set();
+  S.lines.forEach(l=>{const v=l.q*precio(l.k);tot+=v;if(!precioBase(l.k))sinP.add(l.k);
+    (M[l.s]=M[l.s]||{})[l.c]=(M[l.s][l.c]||0)+v;T[l.c]=(T[l.c]||0)+v;});
+  const cols=['A','B','C','?'].filter(c=>S.crit.has(c));
+  $('sum').innerHTML=`<div class="kp"><div><b>${fmt(tot)}</b>Presupuesto total${S.ajuste?` (con ajuste de ${S.ajuste}%)`:''}</div><div><b>${S.list.length}</b>Repuestos distintos</div>
+   <div><b class="${sinP.size?'warn':''}">${sinP.size}</b>Sin costo cargado</div></div>
+   <p class="hint">Incluye equipos de criticidad ${cols.map(c=>c==='?'?'sin clasificar':c).join(', ')||'(ninguna elegida)'}. ${sinP.size?'Los repuestos sin costo todavía no suman al total.':''}</p>
+   <details ${S.sec?'open':''} ontoggle="S.sec=this.open"><summary>Ver el total por sector y criticidad</summary><div class="sc"><table><tr><th>Sector</th>${cols.map(c=>`<th class="num">${c}</th>`).join('')}<th class="num">Total</th></tr>`+
+   Object.keys(M).sort().map(s=>`<tr><td>${esc(s)}</td>${cols.map(c=>`<td class="num">${fmt(M[s][c]||0)}</td>`).join('')}<td class="num">${fmt(Object.values(M[s]).reduce((a,b)=>a+b,0))}</td></tr>`).join('')+
+   `<tr><th>Total</th>${cols.map(c=>`<th class="num">${fmt(T[c]||0)}</th>`).join('')}<th class="num">${fmt(tot)}</th></tr></table></div></details>`;
+}
+function drawList(){
+  const rows=S.list.map((u,i)=>[u,i]).filter(([u])=>!S.onlyNo||!S.pre[u.k]);
+  $('tbl').innerHTML=`<h3>Costo de cada repuesto</h3>`+(rows.length?`<table><tr><th>Repuesto</th><th>Código</th><th class="num">Cantidad</th><th>Costo unitario</th><th>Plazo (días)</th></tr>`+
+   rows.map(([u,i])=>{const p=S.pre[u.k]||{};return `<tr><td>${esc(u.r.Nombre)}${u.r.Designacion?`<br><small>${esc(u.r.Designacion)}</small>`:''}</td><td>${esc(u.r.Codigo_Repuesto)}${p.Fuente==='SAP'?' <small title="Precio tomado de SAP el '+esc(p.Fecha_Precio)+'">· SAP</small>':''}</td><td class="num">${u.q}</td>
+   <td><input data-requiere-bloquear="guardar_precio" type="number" min="0" step="any" value="${esc(p.Costo_Unitario)}" onchange="setPre(${i},'Costo_Unitario',this.value)"></td>
+   <td><input data-requiere-bloquear="guardar_precio" type="number" min="0" value="${esc(p.Plazo_Dias)}" onchange="setPre(${i},'Plazo_Dias',this.value)"></td></tr>`;}).join('')+'</table>':'<p>No hay repuestos para mostrar con estas opciones.</p>');
+}
+async function setPre(i,f,v){
+  const u=S.list[i],p=S.pre[u.k]||(S.pre[u.k]={Clave_Repuesto:u.k,Codigo_Repuesto:u.r.Codigo_Repuesto,Nombre:u.r.Nombre,Designacion:u.r.Designacion});
+  p[f]=v===''?'':Number(v);drawSum();
+  await sigmaPost('guardar_precio',{...p});sigmaToast('Costo guardado');
+}
+function exportar(){
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.lines.map(l=>({Sector:l.s,Criticidad:l.c,Repuesto:l.r.Nombre,Designacion:l.r.Designacion,Codigo:l.r.Codigo_Repuesto,Cantidad:l.q,Costo_Unitario_Cargado:precioBase(l.k),Ajuste_Pct:S.ajuste||0,Costo_Unitario:precio(l.k),Subtotal:l.q*precio(l.k)}))),'Presupuesto');
+  XLSX.writeFile(wb,'presupuesto_repuestos.xlsx');
+}
+/* ---------- CATÁLOGO SAP ---------- */
+/* ===== INICIO LÓGICA SAP ===== */
+const sinTilde=t=>String(t==null?'':t).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const SAP_COLS={
+  grupo2:['denominacion gr articulos','denominacion grupo de articulos','descripcion grupo','descripcion del grupo','texto grupo','denominacion grupo','nombre grupo','grupo de articulos descripcion'],
+  codigo:['material','n material','nro material','no material','numero de material','codigo','cod','cod material','codigo sap','codigo de material','articulo','cod articulo','codigo articulo'],
+  descripcion:['texto breve de material','texto breve','descripcion','denominacion','texto de material','descripcion del material','descripcion material','nombre'],
+  unidad:['umb','unidad','unidad de medida base','unidad de medida','um','u m'],
+  grupo:['grupo de articulos','gr articulos','grupo articulos','grupo de material','grupo mat','gpo art','grupo','rubro','familia'],
+  stock:['libre utilizacion','stock libre','stock','cantidad','existencias','stock disponible'],
+  valor:['valor libre util','valor libre utilizacion','valor stock','valor del stock','valor total','valor libre'],
+  precio:['precio medio variable','precio medio','pmp','precio unitario','valor unitario','precio estandar','precio','costo unitario','costo','precio neto','precio de stock','valor de stock unitario']
+};
+const SAP_CAMPOS=[['codigo','Código del artículo',1],['descripcion','Descripción',1],['precio','Precio unitario',0],['stock','Cantidad en stock',0],['valor','Valor del stock',0],['unidad','Unidad',0],['grupo','Grupo de artículos (código)',0],['grupo2','Grupo de artículos (nombre)',0]];
+function puntajeEnc(celda,campo){
+  const c=sinTilde(celda);if(!c)return 0;
+  let best=0;
+  SAP_COLS[campo].forEach(sn=>{if(c===sn)best=Math.max(best,3);else if(c.startsWith(sn+' ')||c.endsWith(' '+sn))best=Math.max(best,2);else if(sn.length>4&&c.includes(sn))best=Math.max(best,1);});
+  return best;
+}
+/** Busca la fila de encabezados (SAP a veces agrega títulos arriba) y asigna cada campo a una columna. */
+function detectarEncabezado(m){
+  let mejor={fila:0,map:{},n:-1};
+  for(let r=0;r<Math.min(m.length,30);r++){
+    const fila=m[r]||[],usado=new Set(),map={};
+    SAP_CAMPOS.map(c=>c[0]).forEach(campo=>{
+      let b=-1,bs=0;
+      fila.forEach((cel,j)=>{if(usado.has(j))return;const p=puntajeEnc(cel,campo);if(p>bs){bs=p;b=j;}});
+      if(b>=0){map[campo]=b;usado.add(b);}
+    });
+    const n=Object.keys(map).length+(map.codigo!=null&&map.descripcion!=null?5:0);
+    if(n>mejor.n)mejor={fila:r,map,n};
+  }
+  return mejor;
+}
+/** Números de SAP/Excel: 1234.5 | "1.234,56" | "1,234.56" | "$ 1.234,5" | "1234,5" */
+function parsePrecio(v){
+  if(typeof v==='number')return isFinite(v)&&v>=0?v:'';
+  let t=String(v==null?'':v).replace(/[^\d.,-]/g,'');
+  if(!t||t==='-')return '';
+  const c=t.lastIndexOf(','),d=t.lastIndexOf('.');
+  if(c>-1&&d>-1)t=c>d?t.replace(/\./g,'').replace(',','.'):t.replace(/,/g,'');
+  else if(c>-1)t=/^-?\d{1,3}(,\d{3})+$/.test(t)?t.replace(/,/g,''):t.replace(',','.');
+  else if(d>-1&&/^-?\d{1,3}(\.\d{3}){2,}$/.test(t))t=t.replace(/\./g,'');
+  const n=parseFloat(t);
+  return isFinite(n)&&n>=0?n:'';
+}
+const claveSap=c=>String(c==null?'':c).trim().toUpperCase().replace(/\s+/g,'').replace(/^0+(?=.)/,'');
+const RE_GRUPO_NO=/limpieza|libreri|papeler|oficina|laborator|reactiv|materia prima|materias primas|alimento|vajilla|cocina|higiene|cosmetic|medicament|botiquin|electric|instrumentac|indumentaria|epp|herramienta/;
+const RE_GRUPO_SI=/repuesto|rodamiento|ferreteri|mecanic|lubric|soldadura|neumatic|hidraulic|transmision|sellos|valvula|bomba/;
+/* Sin columna de grupo, SAP casi siempre empieza la descripción con el TIPO de artículo ("RODAMIENTO 6205", "CABLE UNIPOLAR..."),
+   así que se agrupa por esa primera palabra. Criterio de este almacén: solo mecánica (se descarta eléctrico, instrumentación,
+   herramientas, ropa/EPP, librería, limpieza, laboratorio y materias primas/químicos de proceso). */
+const ALIAS_TIPO={rodam:'rodamiento',rodamento:'rodamiento',rodamineto:'rodamiento',rodameinto:'rodamiento',valv:'valvula',valvulas:'valvula',
+  bujes:'buje',cuplas:'cupla',guantes:'guante',anteojos:'anteojo',antiparras:'antiparra',marcadores:'marcador',pipetas:'pipeta',limas:'lima',
+  destornilladores:'destornillador',tubos:'tubo',cables:'cable',fichas:'ficha',placas:'placa',carbones:'carbon',esparragos:'esparrago',
+  arandelas:'arandela',collares:'collar',cartuchos:'cartucho',puntera:'puntera',punteras:'puntera',equipos:'equipo',rele:'rele',relé:'rele',
+  portalamp:'portalampara',electromon:'electromonofasico',pint:'pintura',jgo:'juego',juegos:'juego',pallets:'pallet',camisas:'camisa',
+  'q.i.':'quimico','u.a.n':'quimico',a:'',aº:'',t:'',ac:''};
+const TIPOS_GENERICOS=new Set(['kit','juego','jgo','set','pack','de','del','para','p','con','tipo','un','una','el','la','y','repuesto','repuestos','nuevo','mod','modelo','rep','repar','reparacion']);
+const TIPOS_MEC=new Set(('rodamiento manguito manchon cojinete buje casquillo sello retén reten empaquetadura junta oring cupla acople acoplamiento eje chaveta prisionero pasador '+
+  'bulon bulo tornillo tuerca arandela esparrago tirafondo perno grampa abrazadera resorte muelle brida codo niple racor racord union curva tee reduccion cano caño tubo valvula '+
+  'electrovalvula asiento obturador diafragma membrana bomba electrobomba impulsor rodete difusor cuerpo carcasa tapa soporte bastidor vastago embolo piston cilindro camisa liner anillo collar '+
+  'correa banda cadena eslabon piñon pinon engranaje polea reductor motorreductor multiplicador corona contradisco rodillo minirodillo paleta peine maza molino bagacera cuña cuna pestaña freno amortiguador palanca articulacion '+
+  'grasa grasera aceite aceitera lubricante vaselina grafito trabasil locktite sellante filtro microfiltro portafiltro chapa planchuela perfil barra angulo hierro varilla platina ipn llanta '+
+  'electrodo soldadura disco rotor estator motor actuador acople guia brazo manguera goma plancha redondo elastico masa pasta hose mitad housing thrust spacer rubber sealing radial scrapper clamping mount linear tobera piquera nozzle eyector alineador '+
+  'cabezal rejilla grilla trampa precalentador pulmon sifon manifold canasto lubricador compresor turbina engrase tensor zunchon').split(' '));
+const TIPOS_NO=new Set(('cable cablecanal rele breaker guardamotor fusible tomacorriente zapatilla contactor contacto conector terminal bornera interruptor pulsador led lampara portalampara reflector luminaria luz fuente modulo plc cpu hmi sensor transmisor transductor termocupla rtd pt100 termometro manometro vacuometro manovacuo '+
+  'variador arrancador temporizador timer disyuntor selector capacitor condensador resistor trafo bateria pila switch ups bobina electroposicionador posicionador controlador convertidor conversor fotocelula detector medidor multimetro megometro tester comprobador panel gabinete tablero ficha enchufe toma prensacable precinto spaghetti pelacable monitor teclado mouse tv memoria datalogger handy caudalimetro nivel indicador limite piloto electromonofasico rectificador amplificador eliminador captor simatic sentron aislador baliza cuadrante mini nano rack celdas '+
+  'bloqueador riel llave bocallave dados destornillador alicate pinza martillo rotomartillo amoladora pulidora taladro sierra lima lija cepillo pistola remachadora aparejo escalera bits bit fresa mecha broca macho terraja tijera cutter soldador soldadora desoldador hidrolavadora aspiradora sopladora soplete torquimetro pala barreta carretilla zorra pallet candado tenazas gatillo escuadra regla prensa caballete mandril puntal torniquete cuerda eslinga grillete cinturon arnes arneses gancho tacho balde estufa maquin tabla cinta pincel pintura esmalte barniz enduido adhesivo plasticola fastix poxiran antioxido aguarras diluyente solvente masilla resina revestimiento recubrimiento calco cesto banco taburete bandeja bisagra clavo taco tarugo durlock anclaje estopa trapo '+
+  'zapato bota botin casco mascara barbijo guante sobreguante anteojo antiparra protector pantalon campera chaqueta chomba remera overol mameluco delantal chaleco media puntera tapon careta respirador visor cofia haragan calzado cortina pertiga '+
+  'bibliorato carpeta cuaderno resma lapicera lapiz boligrafo marcador resaltador abrochadora broche sacabroches borrador calculadora tinta cartucho toner pad folio pizarra libro papel sobre portaminas mina carton hoja rollo funda llavero rotuladora grabador hilo '+
+  'detergente lavandina desodorante franela toalla escoba escobillon limpiador limpiantes limpia desengrasante virulana esponja dispenser bolsa bolson inodoro mingitorio bidet griferia canilla ducha artefacto grifo botella frasco garrafa jarra '+
+  'alcohol pipeta matraz probeta bureta erlenmeyer erlermeyer vaso brixometro areometro baume buffer reactivo murexida fehling cloruro hidroxido acido sulfato dioxido nitrato cromato permanganato peroxido hipoclorito tartrato biftalato borax fosfato ferrocianuro ioduro iodo anaranjado subacetato titulador patron crisol gradilla piseta viales destilador colorimetro espectrofotometro termohigrometro muestreador capsula solucion decolorante agua azufre carbonato '+
+  'azucar melaza urea soda cal floculante antiincrustante bactericida antiespumante humectante secuestrante acondicionador kemtalofloc floc mafloc hidrosulfito surfac cletodim repelente bagazo leña biomasa tierra ripio hormigon ladrillo sal leche gas quimico almidon extintor matafuego señaliz.emerg. señalizacion ropa fuego cloro cristal vidrio tv hielo').split(' '));
+const RE_DESC_NO=/\b(inodoro|led|termocontraible|residuo|tomacorriente|bornera|pulsador|guardamotor|aislante|antiderrame|policarbonato|durlock|tarugo|sport|talle|lampara|portalampara|cable|rele)\b/;
+const tipoDe=(desc)=>{
+  const toks=sinTilde(desc).split(' ').filter(Boolean);
+  for(let i=0;i<Math.min(toks.length,4);i++){
+    let t=ALIAS_TIPO.hasOwnProperty(toks[i])?ALIAS_TIPO[toks[i]]:toks[i];
+    if(!t||TIPOS_GENERICOS.has(t)||/^\d/.test(t))continue;
+    return t;
+  }
+  return '';
+};
+const enSet=(set,t)=>set.has(t)||(t.length>4&&(set.has(t.replace(/(es|s)$/,''))));
+/** Propuesta automática. Devuelve {estado:'Mecanico'|'Revisar'|'Descartado', motivo, tipo}. */
+function clasificarSap(desc,grupo,grupoReal){
+  const g=sinTilde(grupo),d=sinTilde(desc),tipo=tipoDe(desc);
+  const gv=grupoReal?(RE_GRUPO_NO.test(g)?'D':RE_GRUPO_SI.test(g)?'M':null):null;
+  let dv=null;
+  if(RE_DESC_NO.test(d))dv='D';
+  else if(tipo&&enSet(TIPOS_NO,tipo))dv='D';
+  else if(tipo&&enSet(TIPOS_MEC,tipo))dv='M';
+  if(gv&&dv&&gv!==dv)return{estado:'Revisar',motivo:'Grupo y descripción no coinciden',tipo};
+  const v=gv||dv;
+  if(!v)return{estado:'Revisar',motivo:'Sin regla',tipo};
+  return{estado:v==='D'?'Descartado':'Mecanico',motivo:gv?'Grupo: '+String(grupo).slice(0,40):'Tipo de artículo: '+(tipo||'—'),tipo};
+}
+/** Arma las filas a importar a partir de la matriz del archivo, el mapeo y las decisiones anteriores. */
+function prepararImportacion(m,fila,map,previas,sobreescribir){
+  const filas=new Map(),r={leidas:0,sin_codigo:0,duplicadas:0,sin_precio:0,precio_calculado:0,sin_stock:0};
+  const derivado=map.grupo==null&&map.grupo2==null,calc=map.precio==null&&map.stock!=null&&map.valor!=null;
+  const acc=new Map();
+  for(let i=fila+1;i<m.length;i++){
+    const f=m[i]||[];
+    const cod=String(f[map.codigo]==null?'':f[map.codigo]).trim();
+    const desc=String(f[map.descripcion]==null?'':f[map.descripcion]).trim();
+    if(!cod&&!desc)continue;
+    r.leidas++;
+    const k=claveSap(cod);
+    if(!k){r.sin_codigo++;continue;}
+    const g1=map.grupo!=null?String(f[map.grupo]==null?'':f[map.grupo]).trim():'';
+    const g2=map.grupo2!=null?String(f[map.grupo2]==null?'':f[map.grupo2]).trim():'';
+    const grupo=derivado?(tipoDe(desc).toUpperCase()||'(SIN TIPO)'):(g1&&g2?g1+' · '+g2:(g2||g1||'(sin grupo)'));
+    const precio=map.precio!=null?parsePrecio(f[map.precio]):'';
+    const unidad=map.unidad!=null?String(f[map.unidad]==null?'':f[map.unidad]).trim():'';
+    if(calc){   // el listado trae stock y su valor: precio unitario = valor ÷ cantidad (se suman varios almacenes/lotes del mismo material)
+      const st=parsePrecio(f[map.stock]),va=parsePrecio(f[map.valor]);
+      if(st!==''&&va!==''&&st>0){const a=acc.get(k)||{s:0,v:0};a.s+=st;a.v+=va;acc.set(k,a);}
+    }
+    if(filas.has(k)){r.duplicadas++;const a=filas.get(k);if(precio!==''&&a.Precio==='')a.Precio=precio;if(!a.Descripcion&&desc)a.Descripcion=desc;continue;}
+    const prev=previas.get(k),prop=clasificarSap(desc,grupo,!derivado);
+    filas.set(k,{Codigo_SAP:cod,Descripcion:desc,Unidad:unidad,Grupo_Articulos:grupo,Precio:precio,
+      Estado:prev&&!sobreescribir?prev:prop.estado,Motivo:prev&&!sobreescribir?'Decisión anterior':prop.motivo,_nuevo:!prev,_propuesta:prop.estado});
+  }
+  filas.forEach((f,k)=>{
+    const a=acc.get(k);
+    if(f.Precio===''&&a&&a.s>0&&a.v>0){f.Precio=Math.round(a.v/a.s*100)/100;r.precio_calculado++;}
+    if(f.Precio==='')r.sin_precio++;
+  });
+  r.derivado=derivado;r.calculado=calc;
+  return{filas:Array.from(filas.values()),res:r};
+}
+/* ===== FIN LÓGICA SAP ===== */
+
+async function cargarSap(forzar){
+  const A=S.sap;if(A.cargado&&!forzar)return;
+  const leer=t=>sigmaFetchTab(t).catch(()=>[]);          // si la pestaña todavía no existe, no es un error
+  const [c,d]=await Promise.all([leer('Catalogo_SAP'),leer('SAP_Descartados')]);
+  A.cat=c;A.des=d;A.cargado=true;
+}
+const claveCat=()=>new Map([...S.sap.cat.map(r=>[claveSap(r.Codigo_SAP),r.Estado==='Revisar'?'Revisar':'Mecanico']),...S.sap.des.map(r=>[claveSap(r.Codigo_SAP),'Descartado'])]);
+
+async function viewSap(){
+  $('view').innerHTML='Cargando catálogo…';
+  try{await cargarSap();}catch(e){$('view').innerHTML='<p class="warn">No se pudo leer el catálogo: '+esc(e.message)+'</p>';return;}
+  if(S.tab!=='sap')return;
+  const A=S.sap,rev=A.cat.filter(r=>r.Estado==='Revisar').length,hay=A.cat.length||A.des.length;
+  const cp=A.cat.filter(r=>num(r.Precio)>0).length;
+  $('view').innerHTML=(hay?`<div class="kp"><div><b>${A.cat.length-rev}</b>Artículos de mecánica</div>
+    <div><b class="${rev?'warn':''}">${rev}</b>Para revisar${rev?' <button class="b" onclick="verRevisar()">Revisar</button>':''}</div>
+    <div><b>${cp}</b>Con precio</div></div>`:'')+
+   `<h3>1 · Cargar el listado de SAP</h3>
+   <p><small>Descargá de SAP el listado de materiales (Excel o CSV) con código, descripción y precio. El archivo se lee en tu navegador; no se sube a ningún lado hasta que confirmes. Se hace una o dos veces por año.</small></p>
+   <div class="bar"><input type="file" id="sapf" accept=".xlsx,.xls,.csv,.txt" onchange="leerArchivoSap(this.files[0])"></div>
+   <div id="imp"></div>`+
+   (hay?`<h3>2 · Usar los datos de SAP en los repuestos de los equipos</h3><div id="conc"></div>
+   <details id="catd" ${A.abierto?'open':''} ontoggle="S.sap.abierto=this.open"><summary>3 · Ver y ordenar el catálogo (${A.cat.length+A.des.length} artículos)</summary><div id="cat"></div></details>`:'');
+  drawImp();if(hay){drawConc();drawCat();}
+}
+function verRevisar(){S.sap.est='Revisar';S.sap.q='';S.sap.abierto=true;viewSap();}
+
+/* ---- importar ---- */
+function leerArchivoSap(file){
+  if(!file)return;
+  if(file.size>25*1024*1024)return sigmaToast('El archivo es demasiado grande (máximo 25 MB)');
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      // raw:true evita que SheetJS "interprete" los CSV (borraría ceros de los códigos y rompería "1.500,50")
+      const esTexto=/\.(csv|txt)$/i.test(file.name);
+      let wb;
+      if(esTexto){
+        let txt;try{txt=new TextDecoder('utf-8',{fatal:true}).decode(rd.result);}catch(_){txt=new TextDecoder('windows-1252').decode(rd.result);}
+        wb=XLSX.read(txt,{type:'string',raw:true});
+      }else wb=XLSX.read(rd.result,{type:'array',raw:true,cellDates:false});
+      const hojas=wb.SheetNames;
+      const mat=h=>XLSX.utils.sheet_to_json(wb.Sheets[h],{header:1,raw:true,defval:'',blankrows:true});
+      let h=hojas[0],m=mat(h),mejor=detectarEncabezado(m);
+      hojas.slice(1).forEach(x=>{const mm=mat(x),d=detectarEncabezado(mm);if(d.n>mejor.n){h=x;m=mm;mejor=d;}});
+      S.sap.imp={archivo:file.name,hoja:h,m,fila:mejor.fila,map:mejor.map,over:{},reaplicar:false,listo:false,soloRev:true};
+      drawImp();
+    }catch(e){sigmaToast('No se pudo leer el archivo: '+e.message);}
+  };
+  rd.readAsArrayBuffer(file);
+}
+function cambiarMapa(campo,v){const I=S.sap.imp;if(v==='')delete I.map[campo];else I.map[campo]=Number(v);I.listo=false;drawImp();}
+function drawImp(){
+  const I=S.sap.imp,box=$('imp');if(!box)return;
+  if(!I){box.innerHTML='';return;}
+  const enc=I.m[I.fila]||[],ncol=Math.max(...I.m.slice(0,40).map(r=>(r||[]).length),1);
+  const opt=j=>`<option value="${j}">${esc(String(enc[j]||'').slice(0,40)||'(columna '+(j+1)+')')}</option>`;
+  const faltan=I.map.codigo==null||I.map.descripcion==null;
+  let html=`<div class="plate" style="padding:1rem;margin:.6rem 0"><p><b>${esc(I.archivo)}</b> · hoja «${esc(I.hoja)}»</p>
+   <details ${faltan||I.mapAbierto?'open':''} ontoggle="if(S.sap.imp)S.sap.imp.mapAbierto=this.open"><summary>${faltan?'Elegí las columnas':'Columnas detectadas (ajustalas solo si algo está mal)'}</summary>
+   <p><small>Encabezados en la fila ${I.fila+1}. Revisá que cada dato esté en la columna correcta.</small></p><div class="bar">`+
+   SAP_CAMPOS.map(([k,l,req])=>`<label>${l}${req?' *':''}<select onchange="cambiarMapa('${k}',this.value)"><option value="">${req?'— elegir —':'— no viene —'}</option>${Array.from({length:ncol},(_,j)=>opt(j).replace(`value="${j}"`,`value="${j}"${I.map[k]===j?' selected':''}`)).join('')}</select></label>`).join('')+`</div></details>`;
+  if(faltan){box.innerHTML=html+`<p class="warn">Elegí al menos las columnas de código y descripción.</p></div>`;return;}
+  const prev=claveCat(),P=prepararImportacion(I.m,I.fila,I.map,prev,I.reaplicar);
+  I.prep=P;
+  P.filas.forEach(f=>{if(f._nuevo){const o=I.over[f.Grupo_Articulos];if(o)f.Estado=o;}});
+  const G={};
+  P.filas.forEach(f=>{const g=G[f.Grupo_Articulos]||(G[f.Grupo_Articulos]={n:0,nuevos:0,c:{Mecanico:0,Revisar:0,Descartado:0},ej:[]});
+    g.n++;if(f._nuevo)g.nuevos++;g.c[f.Estado]++;if(g.ej.length<3&&f._nuevo)g.ej.push(f.Descripcion);});
+  const tot={Mecanico:0,Revisar:0,Descartado:0};P.filas.forEach(f=>tot[f.Estado]++);
+  const nuevos=P.filas.filter(f=>f._nuevo).length,existentes=P.filas.length-nuevos;
+  let cambios=0;const cm=new Map(S.sap.cat.map(r=>[claveSap(r.Codigo_SAP),r]));
+  P.filas.forEach(f=>{const e=cm.get(claveSap(f.Codigo_SAP));if(e&&f.Precio!==''&&num(e.Precio)>0&&Math.abs(num(e.Precio)-f.Precio)>1e-9)cambios++;});
+  html+=`<div class="kp"><div><b>${nuevos}</b>Artículos nuevos</div><div><b>${existentes}</b>Ya conocidos</div>
+   <div><b>${cambios}</b>Con cambio de precio</div><div><b class="${P.res.sin_precio?'warn':''}">${P.res.sin_precio}</b>Sin precio en el archivo</div></div>`;
+  if(!P.res.calculado&&I.map.precio==null)html+=`<p class="warn">No se eligió la columna de precio ni stock/valor: se importarán los códigos pero sin precios.</p>`;
+  const notas=[];
+  if(P.res.calculado)notas.push(`<b>Precio:</b> el archivo no trae precio unitario, así que SIGMA lo calcula como <i>valor del stock ÷ cantidad en stock</i>. ${P.res.precio_calculado} artículos tienen precio; los otros ${P.res.sin_precio} no tienen stock y quedan sin precio. Para presupuestarlos hace falta un listado de SAP que traiga el precio medio variable o el estándar.`);
+  if(P.res.derivado)notas.push(`El archivo no trae grupo de artículos, así que se agrupa por el <b>tipo de artículo</b> (primera palabra de la descripción: RODAMIENTO, CABLE, RETEN…).`);
+  if(P.res.duplicadas||P.res.sin_codigo)notas.push(`${P.res.duplicadas?P.res.duplicadas+' filas repetidas (mismo código) se unificaron. ':''}${P.res.sin_codigo?P.res.sin_codigo+' filas sin código se ignoraron.':''}`);
+  if(notas.length)html+=`<details><summary>Notas sobre el archivo</summary>${notas.map(n=>`<p><small>${n}</small></p>`).join('')}</details>`;
+  const keys=Object.keys(G).filter(k=>!I.soloRev||G[k].c.Revisar>0).sort((a,b)=>G[b].n-G[a].n);
+  html+=`<p><b>Clasificación propuesta:</b> ${tot.Mecanico} de mecánica · ${tot.Revisar} para revisar · ${tot.Descartado} a descartar.</p>
+   <details open><summary>Corregir la clasificación por ${P.res.derivado?'tipo de artículo':'grupo'} (${keys.length} ${I.soloRev?'con dudas':'en total'})</summary>
+   <p><small>Los artículos que ya conocés mantienen la decisión anterior. ${I.soloRev?'Solo se muestran los grupos con artículos para revisar; el resto ya tiene una propuesta clara.':''}</small>
+   <button class="b" onclick="S.sap.imp.soloRev=!S.sap.imp.soloRev;S.sap.imp.verTodos=false;drawImp()">${I.soloRev?'Mostrar todos los grupos':'Mostrar solo los grupos con dudas'}</button></p>
+   <div class="sc"><table><tr><th>${P.res.derivado?'Tipo de artículo':'Grupo de artículos'}</th><th class="num">Artículos</th><th>Propuesta automática</th><th>Qué hacer con los nuevos</th><th>Ejemplos</th></tr>`+
+   keys.slice(0,I.verTodos?300:40).map(k=>{const g=G[k],o=I.over[k]||'';return `<tr><td>${esc(k)}</td><td class="num">${g.n}${g.nuevos?`<br><small>${g.nuevos} nuevos</small>`:''}</td>
+    <td><small>${g.c.Mecanico} mecánica · ${g.c.Revisar} revisar · ${g.c.Descartado} descartar</small></td>
+    <td>${g.nuevos?`<select style="min-width:170px" onchange="I_over(this,${esc(JSON.stringify(k)).replace(/'/g,'&#39;')})"><option value="">Según la propuesta</option>
+     ${[['Mecanico','Todos de mecánica'],['Revisar','Todos para revisar'],['Descartado','Descartar todos']].map(([v,l])=>`<option value="${v}" ${o===v?'selected':''}>${l}</option>`).join('')}</select>`:'—'}</td>
+    <td><small>${g.ej.map(esc).join(' · ')}</small></td></tr>`;}).join('')+`</table></div>`;
+  if(keys.length>40&&!I.verTodos)html+=`<p><button class="b" onclick="S.sap.imp.verTodos=true;drawImp()">Ver los ${keys.length-40} grupos restantes</button></p>`;
+  html+=`</details><p><small>No hace falta decidir todo ahora: lo que no corrijas queda como «Para revisar» en el catálogo, donde podés buscarlo y marcarlo después.</small></p>
+   <details><summary>Opciones avanzadas</summary><label><input type="checkbox" ${I.reaplicar?'checked':''} onchange="S.sap.imp.reaplicar=this.checked;drawImp()"> Volver a clasificar también los artículos ya conocidos</label></details>
+   <div class="bar"><button id="btnImp" onclick="confirmarImportacion()">Importar ${P.filas.length} artículos</button> <button class="b" onclick="S.sap.imp=null;$('sapf').value='';drawImp()">Cancelar</button></div></div>`;
+  box.innerHTML=html;
+}
+function I_over(sel,grupo){const I=S.sap.imp;if(sel.value)I.over[grupo]=sel.value;else delete I.over[grupo];drawImp();}
+async function confirmarImportacion(){
+  const I=S.sap.imp;if(!I||!I.prep)return;
+  const filas=I.prep.filas.map(f=>({Codigo_SAP:f.Codigo_SAP,Descripcion:f.Descripcion,Unidad:f.Unidad,Grupo_Articulos:f.Grupo_Articulos,Precio:f.Precio,Estado:f.Estado,Motivo:f.Motivo}));
+  if(!filas.length)return sigmaToast('No hay artículos para importar');
+  if(filas.length>40000)return sigmaToast('Son demasiados artículos (máximo 40000). Dividí el archivo.');
+  const b=$('btnImp');b.disabled=true;b.textContent='Importando… puede tardar unos segundos';
+  try{
+    const r=await sigmaApi('importar_catalogo_sap',{filas});
+    S.sap.imp=null;await cargarSap(true);viewSap();
+    sigmaToast(`Importado: ${r.nuevos} nuevos, ${r.actualizados} actualizados, ${r.precios_cambiados} con cambio de precio, ${r.descartados_nuevos} descartados`);
+  }catch(e){b.disabled=false;b.textContent='Reintentar importación';sigmaToast('No se pudo importar: '+e.message);}
+}
+
+/* ---- conciliar con repuestos de equipos ---- */
+function resumenConc(){
+  const pm=new Map();S.sap.cat.forEach(r=>{if(num(r.Precio)>0)pm.set(claveSap(r.Codigo_SAP),num(r.Precio));});
+  const vistos=new Set();let ok=0,sinCod=0,no=0;
+  S.rep.forEach(r=>{const k=clave(r);if(vistos.has(k))return;vistos.add(k);
+    const c=norm(r.Codigo_Repuesto);if(!c||c==='S/C'){sinCod++;return;}
+    if(pm.has(claveSap(c)))ok++;else no++;});
+  return{total:vistos.size,ok,sinCod,no};
+}
+function drawConc(){
+  const box=$('conc');if(!box)return;
+  const c=resumenConc(),A=S.sap;
+  box.innerHTML=`<div class="kp"><div><b>${c.ok}</b>de ${c.total} repuestos tienen precio en SAP</div>
+   <div><b class="${c.no?'warn':''}">${c.no}</b>Código que no está en SAP</div><div><b class="${c.sinCod?'warn':''}">${c.sinCod}</b>Sin código (S/C): hay que ponerles el costo a mano</div></div>
+   <div class="plate" style="padding:1rem;margin-bottom:1rem"><b>Costos</b>
+    <p><small>Completa el costo de los repuestos con el precio de SAP. Los costos que cargaste a mano no se pisan.</small></p>
+    <div class="bar"><button id="btnAp" onclick="aplicarPrecios()">Aplicar precios de SAP</button></div>
+    <details><summary>Opciones</summary><div class="bar"><label><input type="radio" name="modo" value="vacios" checked> Solo completar los que no tienen costo</label>
+     <label><input type="radio" name="modo" value="todos"> Actualizar también los que ya tienen costo</label></div></details><div id="concres"></div></div>
+   <div class="plate" style="padding:1rem;margin-bottom:1rem"><b>Nombres</b>
+    <p><small>Cada repuesto con código toma el nombre que tiene ese mismo código en SAP. Primero se muestra qué cambiaría; el nombre anterior queda guardado.</small></p>
+    <div class="bar"><button id="btnNom" onclick="nombresSap('simular')">Ver qué nombres cambiarían</button></div>
+    <details><summary>Deshacer</summary><div class="bar"><button class="b" id="btnNomR" onclick="if(confirm('Se vuelven a poner los nombres que tenían antes de usar SAP. ¿Continuar?'))nombresSap('restaurar')">Restaurar nombres originales</button></div></details><div id="nomres"></div></div>
+   <div class="plate" style="padding:1rem;margin-bottom:1rem"><b>Códigos</b>
+    <p><small>Cambia en bloque el código de los repuestos a partir de un Excel con dos columnas: <i>Designación</i> y <i>Código a usar</i>. Todos los repuestos con esa designación pasan a ese código. Primero se muestra qué cambiaría; el código anterior queda guardado y los costos ya cargados se mantienen.</small></p>
+    <div class="bar"><input type="file" id="codf" accept=".xlsx,.xls,.csv" onchange="leerArchivoCodigos(this.files[0])"></div><div id="codres"></div>
+    <details><summary>Deshacer</summary><div class="bar"><button class="b" id="btnCodR" onclick="if(confirm('Se vuelven a poner los códigos que tenían los repuestos antes de cambiarlos. ¿Continuar?'))codigosSap('restaurar')">Restaurar códigos originales</button></div></details></div>`;
+  const r=A.res;
+  if(r)$('concres').innerHTML=`<p><b>Resultado:</b> ${r.nuevos} costos nuevos · ${r.actualizados} actualizados · ${r.conservados} sin cambios · ${r.no_estan_en_sap} códigos que no están en SAP.</p>`+
+   (r.cambios.length?`<div class="sc"><table><tr><th>Código</th><th>Repuesto</th><th class="num">Antes</th><th class="num">Ahora</th></tr>${r.cambios.map(x=>`<tr><td>${esc(x.Codigo)}</td><td>${esc(x.Nombre)}</td><td class="num">${x.Antes===''?'—':fmt(x.Antes)}</td><td class="num">${fmt(x.Despues)}</td></tr>`).join('')}</table></div>`:'')+
+   (r.faltan.length?`<details><summary>Códigos de los equipos que no están en el listado de SAP (${r.no_estan_en_sap})</summary><div class="sc"><table><tr><th>Código</th><th>Repuesto</th></tr>${r.faltan.map(x=>`<tr><td>${esc(x.Codigo)}</td><td>${esc(x.Nombre)}</td></tr>`).join('')}</table></div></details>`:'');
+}
+async function nombresSap(modo){
+  const b=$('btnNom'),bR=$('btnNomR');b.disabled=bR.disabled=true;
+  try{
+    const r=await sigmaApi('nombres_sap',{modo});
+    if(modo!=='simular'){S.rep=await sigmaFetchTab('Repuestos');}
+    b.disabled=bR.disabled=false;
+    const box=$('nomres');
+    if(modo==='restaurar'){box.innerHTML=`<p><b>Listo:</b> ${r.restaurados} repuestos volvieron a su nombre original.</p>`;sigmaToast('Nombres restaurados');return;}
+    if(modo==='aplicar'){box.innerHTML=`<p><b>Listo:</b> ${r.cambiados} repuestos ahora usan el nombre de SAP.</p>`;sigmaToast('Nombres actualizados');return;}
+    box.innerHTML=`<p>${r.cambiados} cambiarían de nombre · ${r.iguales} ya coinciden con SAP · ${r.no_estan_en_sap} con código que no está en SAP · ${r.sin_codigo} sin código (no se tocan).</p>`+
+     (r.cambiados?`<div class="sc"><table><tr><th>Código</th><th>Nombre actual</th><th>Nombre en SAP</th></tr>${r.cambios.map(x=>`<tr><td>${esc(x.Codigo)}</td><td>${esc(x.Antes)}</td><td>${esc(x.Despues)}</td></tr>`).join('')}</table></div>`+(r.cambiados>r.cambios.length?`<p><small>Se muestran los primeros ${r.cambios.length}.</small></p>`:'')+
+      `<div class="bar"><button class="b" onclick="if(confirm('Se van a reemplazar ${r.cambiados} nombres por los de SAP. ¿Continuar?'))nombresSap('aplicar')">Reemplazar ${r.cambiados} nombres por los de SAP</button></div>`:'');
+  }catch(e){b.disabled=bR.disabled=false;sigmaToast('No se pudo: '+e.message);}
+}
+/* ---- cambio de códigos en bloque ---- */
+function leerArchivoCodigos(file){
+  if(!file)return;
+  if(file.size>5*1024*1024)return sigmaToast('El archivo es demasiado grande');
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const wb=XLSX.read(rd.result,{type:'array',raw:true});
+      let hallado=null;
+      for(const h of wb.SheetNames){
+        const m=XLSX.utils.sheet_to_json(wb.Sheets[h],{header:1,raw:true,defval:'',blankrows:false});
+        for(let i=0;i<Math.min(m.length,10)&&!hallado;i++){
+          const enc=(m[i]||[]).map(sinTilde),d=enc.indexOf('designacion'),c=enc.findIndex(x=>['codigo a usar','codigo nuevo','codigo sap nuevo'].includes(x));
+          if(d>=0&&c>=0)hallado={m,fila:i,d,c};
+        }
+        if(hallado)break;
+      }
+      if(!hallado)return sigmaToast('No encontré las columnas «Designación» y «Código a usar» en el archivo');
+      const cambios=[];
+      hallado.m.slice(hallado.fila+1).forEach(r=>{
+        const des=String(r[hallado.d]??'').trim(),cod=String(r[hallado.c]??'').trim();
+        if(des&&/^[A-Za-z0-9][A-Za-z0-9\-\/. ]{0,29}$/.test(cod))cambios.push({Designacion:des,Codigo_Nuevo:cod});
+      });
+      if(!cambios.length)return sigmaToast('El archivo no tiene filas con designación y código');
+      S.cod={archivo:file.name,cambios};codigosSap('simular');
+    }catch(e){sigmaToast('No se pudo leer el archivo: '+e.message);}
+  };
+  rd.readAsArrayBuffer(file);
+}
+async function codigosSap(modo){
+  const box=$('codres'),bR=$('btnCodR');
+  if(modo!=='restaurar'&&!(S.cod&&S.cod.cambios))return sigmaToast('Primero elegí el archivo');
+  if(bR)bR.disabled=true;
+  try{
+    const r=await sigmaApi('cambiar_codigos',modo==='restaurar'?{modo}:{modo,cambios:S.cod.cambios});
+    if(bR)bR.disabled=false;
+    if(modo!=='simular'){
+      const [rep,pre]=await Promise.all([sigmaFetchTab('Repuestos'),sigmaFetchTab('Precios').catch(()=>[])]);
+      S.rep=rep;S.pre={};pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
+    }
+    if(modo==='restaurar'){box.innerHTML=`<p><b>Listo:</b> ${r.restaurados} repuestos volvieron a su código original.</p>`;sigmaToast('Códigos restaurados');return;}
+    if(modo==='aplicar'){S.cod=null;$('codf').value='';box.innerHTML=`<p><b>Listo:</b> se cambió el código de ${r.cambiados} repuestos${r.costos_copiados?` y se mantuvieron ${r.costos_copiados} costos`:''}.</p>`;sigmaToast('Códigos actualizados');return;}
+    box.innerHTML=`<p><b>${esc(S.cod.archivo)}</b>: ${S.cod.cambios.length} designaciones leídas → ${r.cambiados} repuestos cambiarían de código · ${r.iguales} ya tienen ese código.</p>`+
+     (r.designaciones_sin_filas.length?`<p class="warn"><small>Designaciones que no existen en Repuestos (no hacen nada): ${r.designaciones_sin_filas.map(esc).join(', ')}</small></p>`:'')+
+     (r.fuera_de_sap.length?`<p class="warn"><small>Códigos nuevos que no están en el catálogo de SAP cargado: ${r.fuera_de_sap.map(esc).join(', ')}. Revisalos antes de aplicar.</small></p>`:'')+
+     (r.cambiados?`<div class="sc"><table><tr><th>Equipo</th><th>Repuesto</th><th>Designación</th><th>Código actual</th><th>Código nuevo</th></tr>${r.cambios.map(x=>`<tr><td>${esc(x.Equipo)}</td><td>${esc(x.Repuesto)}</td><td>${esc(x.Designacion)}</td><td>${esc(x.Antes)||'<small>(vacío)</small>'}</td><td>${esc(x.Despues)}</td></tr>`).join('')}</table></div>`+(r.cambiados>r.cambios.length?`<p><small>Se muestran los primeros ${r.cambios.length}.</small></p>`:'')+
+      `<div class="bar"><button onclick="if(confirm('Se va a cambiar el código de ${r.cambiados} repuestos. ¿Continuar?'))codigosSap('aplicar')">Cambiar el código de ${r.cambiados} repuestos</button></div>`:'');
+  }catch(e){if(bR)bR.disabled=false;sigmaToast('No se pudo: '+e.message);}
+}
+async function aplicarPrecios(){
+  const modo=(document.querySelector('input[name=modo]:checked')||{}).value||'vacios';
+  if(modo==='todos'&&!confirm('Se van a reemplazar también los costos que ya estaban cargados por los de SAP. ¿Continuar?'))return;
+  const b=$('btnAp');b.disabled=true;
+  try{
+    S.sap.res=await sigmaApi('aplicar_precios_sap',{modo});
+    const pre=await sigmaFetchTab('Precios').catch(()=>[]);S.pre={};pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
+    drawConc();sigmaToast('Precios aplicados');
+  }catch(e){b.disabled=false;sigmaToast('No se pudo aplicar: '+e.message);}
+}
+
+/* ---- catálogo ---- */
+function filasCat(){
+  const A=S.sap,q=A.q.toLowerCase(),usados=new Set(S.rep.map(r=>claveSap(r.Codigo_Repuesto)));
+  const base=[...A.cat.map(r=>({...r,_est:r.Estado==='Revisar'?'Revisar':'Mecanico'})),...(A.est==='Descartado'?A.des.map(r=>({...r,_est:'Descartado'})):[])];
+  return base.filter(r=>(!A.est||r._est===A.est)&&(!q||(r.Codigo_SAP+' '+r.Descripcion+' '+r.Grupo_Articulos).toLowerCase().includes(q))&&(!A.libres||(r._est!=='Descartado'&&!usados.has(claveSap(r.Codigo_SAP)))));
+}
+function drawCat(){
+  const box=$('cat');if(!box)return;const A=S.sap;
+  if(!A.cat.length&&!A.des.length){box.innerHTML='<p>Todavía no hay artículos cargados.</p>';return;}
+  box.innerHTML=`<div class="bar"><input id="cq" placeholder="Buscar por código, descripción o grupo" value="${esc(A.q)}" oninput="S.sap.q=this.value;clearTimeout(window._t);window._t=setTimeout(drawCatTabla,200)">
+   <select onchange="S.sap.est=this.value;drawCatTabla()">${[['','Mecánica y a revisar'],['Mecanico','Solo mecánica'],['Revisar','Solo para revisar'],['Descartado','Descartados']].map(([v,l])=>`<option value="${v}" ${A.est===v?'selected':''}>${l}</option>`).join('')}</select>
+   <label><input type="checkbox" ${A.libres?'checked':''} onchange="S.sap.libres=this.checked;drawCatTabla()"> Solo los que no están asignados a ningún equipo</label></div>
+   <div data-requiere="importar_catalogo_sap"><div class="bar" id="selbar" style="display:none"><span id="selinfo"></span><button class="b" onclick="marcarSel('Mecanico')">Marcar como mecánica</button>
+   <button class="b" onclick="marcarSel('Revisar')">Marcar para revisar</button><button class="b" onclick="marcarSel('Descartado')">Descartar</button></div>
+   <p><small>Tildá artículos para clasificarlos.</small></p></div>
+   <div class="sc" id="ctab"></div>`;
+  drawCatTabla();
+}
+function drawCatTabla(){
+  const A=S.sap,rows=filasCat(),mostrar=rows.slice(0,150);
+  window._catRows=mostrar;
+  avisoSel();
+  $('ctab').innerHTML=`<p><small>${rows.length} artículos${rows.length>150?' (se muestran los primeros 150: usá el buscador para acotar)':''}</small></p>
+   <table><tr><th><input type="checkbox" onchange="selTodos(this.checked)"></th><th>Código</th><th>Descripción</th><th>Grupo</th><th class="num">Precio</th><th>Estado</th></tr>`+
+   mostrar.map((r,i)=>{const k=claveSap(r.Codigo_SAP);return `<tr><td><input type="checkbox" ${A.sel.has(k)?'checked':''} onchange="selUno('${esc(k).replace(/'/g,'')}',this.checked)"></td><td>${esc(r.Codigo_SAP)}</td><td>${esc(r.Descripcion)}</td><td><small>${esc(r.Grupo_Articulos)}</small></td>
+   <td class="num">${num(r.Precio)>0?fmt(num(r.Precio)):'—'}${num(r.Precio_Anterior)>0&&num(r.Precio_Anterior)!==num(r.Precio)?`<br><small title="Precio anterior">antes ${fmt(num(r.Precio_Anterior))}</small>`:''}</td>
+   <td>${r._est==='Revisar'?'<span class="warn">Revisar</span>':r._est==='Descartado'?'Descartado':'Mecánica'}</td></tr>`;}).join('')+'</table>';
+}
+function avisoSel(){const n=S.sap.sel.size,b=$('selbar'),i=$('selinfo');if(b)b.style.display=n?'flex':'none';if(i)i.textContent=n?`${n} seleccionados`:'';}
+function selUno(k,on){on?S.sap.sel.add(k):S.sap.sel.delete(k);avisoSel();}
+function selTodos(on){(window._catRows||[]).forEach(r=>{const k=claveSap(r.Codigo_SAP);on?S.sap.sel.add(k):S.sap.sel.delete(k);});drawCatTabla();}
+async function marcarSel(estado){
+  const A=S.sap;if(!A.sel.size)return sigmaToast('Primero tildá los artículos');
+  const todos=[...A.cat,...A.des].filter(r=>A.sel.has(claveSap(r.Codigo_SAP)));
+  const filas=todos.map(r=>({Codigo_SAP:r.Codigo_SAP,Descripcion:r.Descripcion,Unidad:r.Unidad,Grupo_Articulos:r.Grupo_Articulos,Precio:num(r.Precio)>0?num(r.Precio):'',Estado:estado,Motivo:'Decisión manual'}));
+  if(estado==='Descartado'&&!confirm(`Se van a descartar ${filas.length} artículos. Se guardan aparte y no vuelven a molestar en próximas cargas. ¿Continuar?`))return;
+  try{await sigmaApi('importar_catalogo_sap',{filas});A.sel.clear();await cargarSap(true);viewSap();sigmaToast('Actualizado');}
+  catch(e){sigmaToast('No se pudo guardar: '+e.message);}
+}
+
+load();
+</script></body></html>
