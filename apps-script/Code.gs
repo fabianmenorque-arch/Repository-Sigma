@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-24-v21-solicitud-pedido";
+const VERSION_SCRIPT = "2026-10-24-v22-inspeccion-diaria";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -1015,7 +1015,7 @@ function sanitizarCuerpo_(obj) {
 /* ============================================================
    INSPECCIONES DE BOMBAS — control ambiental
    ------------------------------------------------------------
-   Procedimiento de inspección de bombas (niveles 1 a 4). Cada inspección
+   Procedimiento de inspección de bombas (ronda diaria, cada turno). Cada inspección
    queda en la pestaña "Inspecciones"; el servidor CLASIFICA el resultado
    (Normal / Alerta / Crítico / Riesgo para personas) con los criterios del
    procedimiento — nunca confía en la clase que diga el navegador — y, si no
@@ -1041,31 +1041,15 @@ const PRIORIDADES_AMBIENTALES = ["", "Alta", "Media", "Baja"];
 const ITEMS_INSPECCION = [
   {id: "m1", nivel: 1, texto: "Ruido: sin golpeteo, chirridos ni sonido de grava (cavitación)"},
   {id: "m2", nivel: 1, texto: "Vibración: sin aumento perceptible frente a la ronda anterior"},
-  {id: "m3", nivel: 2, texto: "Presión de succión y descarga estables y dentro del rango de operación"},
-  {id: "m4", nivel: 3, texto: "Corriente del motor dentro del valor de placa y sin oscilaciones"},
   {id: "m5", nivel: 1, texto: "Temperatura de rodamientos y carcasa del motor sin elevación anormal"},
   {id: "m6", nivel: 1, texto: "Sellado: sin goteo excesivo en sello mecánico (o goteo normal en empaquetadura)"},
-  {id: "m7", nivel: 2, texto: "Instrumentos locales (manómetros, termómetros) legibles y operativos"},
   {id: "g1", nivel: 1, texto: "Sin fugas en bridas, juntas, drenajes ni conexiones"},
-  {id: "g2", nivel: 2, texto: "Tornillos de base, carcasa y acople completos y ajustados"},
   {id: "g3", nivel: 1, texto: "Guarda del acople colocada y en buen estado"},
-  {id: "g4", nivel: 2, texto: "Nivel y color del aceite correctos; respiradero limpio; grasa según plan"},
-  {id: "g5", nivel: 2, texto: "Tuberías y soportes sin tensiones ni vibración; sin deformación de la base"},
-  {id: "g6", nivel: 2, texto: "Corrosión, pintura y orden y limpieza del entorno"},
-  {id: "g7", nivel: 2, texto: "Ventilación del motor libre, sin acumulación de bagazo, polvo o producto"},
-  {id: "a1", nivel: 1, texto: "Contención (bandeja, muro o cubeto) íntegra, limpia y sin líquido acumulado"},
-  {id: "a2", nivel: 2, texto: "Drenaje de la contención cerrado y sin conexión directa a canal o desagüe"},
+  {id: "a1", nivel: 1, texto: "Contención (bandeja o muro) íntegra, limpia y sin líquido acumulado"},
   {id: "a3", nivel: 1, texto: "Sin manchas, charcos, goteos ni humedad en el suelo alrededor de la bomba"},
   {id: "a4", nivel: 1, texto: "Sin rastros de producto en canaletas, zanjas o alcantarillas cercanas"},
   {id: "a5", nivel: 1, texto: "Sello, bridas y válvulas sin fuga; goteras de purga recogidas y no al piso"},
-  {id: "a6", nivel: 2, texto: "Alarmas de nivel o de fuga operativas, si la bomba las tiene"},
-  {id: "a7", nivel: 2, texto: "Kit antiderrame completo y señalizado cerca del equipo"},
-  {id: "a8", nivel: 1, texto: "Olores o espuma anormales avisados al área ambiental"},
-  {id: "d1", nivel: 4, texto: "Alineación y estado del acople (elemento flexible, huelgas)"},
-  {id: "d2", nivel: 4, texto: "Juego axial y radial del eje; giro libre a mano"},
-  {id: "d3", nivel: 4, texto: "Estado de sello o empaquetadura y camisas del eje"},
-  {id: "d4", nivel: 4, texto: "Desgaste visible de rodete, anillos de desgaste y carcasa si se abre"},
-  {id: "d5", nivel: 4, texto: "Pata coja y estado de la bancada"}
+  {id: "a8", nivel: 1, texto: "Olores o espuma anormales avisados al área ambiental"}
 ];
 
 function hojaInspecciones_() {
@@ -1125,8 +1109,7 @@ function registrarInspeccion_(body) {
   if (!codigo || !existeValor_(hoja_(SHEETS.EQUIPOS), "Codigo_SIGMA", codigo)) {
     throw new Error("No existe el equipo " + codigo + ".");
   }
-  const nivel = parseInt(body.Nivel, 10);
-  if ([1, 2, 3, 4].indexOf(nivel) === -1) throw new Error("El nivel de inspección tiene que ser 1, 2, 3 o 4.");
+  const nivel = 1; // solo ronda diaria (cada turno); los registros viejos con nivel 2 a 4 se conservan
   const estadoBomba = body.Estado_Bomba === "Detenida" ? "Detenida" : "En marcha";
   const fechaHora = validarFechaHora_(body.Fecha_Hora);
 
@@ -1171,7 +1154,7 @@ function registrarInspeccion_(body) {
       }
     } else {
       nroOrden = "OT-" + new Date().getTime();
-      const descripcion = ("Inspección nivel " + nivel + " (" + cl.clase + "): " + cl.hallazgos.join("; ") +
+      const descripcion = ("Inspección diaria (" + cl.clase + "): " + cl.hallazgos.join("; ") +
         ". Plazo: " + plazo + "." + (obs ? " Obs.: " + obs : "")).slice(0, 900);
       crearOrden_({
         Nro_Orden: nroOrden,
