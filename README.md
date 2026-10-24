@@ -209,3 +209,9 @@ Tres pestañas: **Equipos y repuestos** (se elige el equipo y se abre su lista d
 ### Cambio de códigos en bloque
 
 En *Repuestos → Datos de SAP → Códigos* se elige un Excel con las columnas **Designación** y **Código a usar** (por ejemplo el de «materiales en duda»). Todos los repuestos con esa designación pasan a ese código. Antes de tocar nada se muestra la lista exacta (equipo, repuesto, código actual y nuevo), las designaciones que no existen y los códigos nuevos que no están en el catálogo de SAP. El código anterior queda en la columna `Codigo_Original`, los costos ya cargados se copian al código nuevo y **Restaurar códigos originales** deshace todo. Requiere Code.gs v20.
+
+### Solicitud de pedido
+
+*Repuestos → Solicitud de pedido* toma los repuestos instalados en los equipos (según la criticidad elegida), los agrupa por **código SAP** y los separa por categoría (rodamientos, retenes, sellos y empaquetaduras, acoples y elásticos, correas y transmisión, partes mecánicas, bulonería y fijaciones, filtros y lubricantes, herramientas, otros). La categoría se sugiere por el nombre del repuesto y se puede corregir a mano.
+
+Cantidad a pedir (misma lógica que la planilla): `instalados × (1 + cambios previstos por equipo) + stock mínimo − stock en SAP`, redondeado hacia arriba y nunca negativo. Cambios previstos, stock mínimo y categoría se guardan en la pestaña *Precios* (columnas `Cambios_Previstos`, `Stock_Min`, `Categoria`, que se crean solas). El stock sale del listado de SAP («Libre utilización»): al importar el catálogo se guarda en la pestaña `Stock_SAP`. Los ítems que no salen de los equipos (herramientas, bulonería especial, grasas) se agregan a mano y quedan en `Pedido_Manual`. Los repuestos «S/C» no se pueden pedir y salen en una lista aparte. **Exportar solicitud a Excel** genera tres hojas: *Solicitud de pedido*, *Detalle por equipo* y *Sin código SAP*. Requiere Code.gs v21.

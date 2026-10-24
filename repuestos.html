@@ -34,7 +34,7 @@
 </div>
 <script>
 document.getElementById('nav-slot').innerHTML=sigmaRenderNav('repuestos');
-const S={ajuste:0,sap:{cat:[],des:[],cargado:false,imp:null,q:'',est:'',libres:false,sel:new Set(),res:null},eq:[],rep:[],pre:{},tab:'eq',q:'',sf:'',crit:new Set(['A','B']),shared:false,sel:'',onlyNo:false,lines:[],list:[]};
+const S={ajuste:0,sap:{cat:[],des:[],cargado:false,imp:null,q:'',est:'',libres:false,sel:new Set(),res:null},eq:[],rep:[],pre:{},tab:'eq',q:'',sf:'',crit:new Set(['A','B']),shared:false,sel:'',onlyNo:false,lines:[],list:[],manual:[],stock:[],ped:{soloPedir:true,cat:'',form:false,items:[]}};
 const $=id=>document.getElementById(id);
 new MutationObserver(()=>document.querySelectorAll('#view table:not(.sigma-table)').forEach(t=>t.classList.add('sigma-table'))).observe($('view'),{childList:true,subtree:true});
 const norm=s=>String(s||'').trim().toUpperCase().replace(/\s+/g,' ');
@@ -57,15 +57,15 @@ function sugerir(e){
 
 async function load(){
   try{
-    const [eq,rep,pre]=await Promise.all([sigmaFetchTab('Equipos'),sigmaFetchTab('Repuestos'),sigmaFetchTab('Precios').catch(()=>[])]);
-    S.eq=eq;S.rep=rep;pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
+    const [eq,rep,pre,man,stk]=await Promise.all([sigmaFetchTab('Equipos'),sigmaFetchTab('Repuestos'),sigmaFetchTab('Precios').catch(()=>[]),sigmaFetchTab('Pedido_Manual').catch(()=>[]),sigmaFetchTab('Stock_SAP').catch(()=>[])]);
+    S.eq=eq;S.rep=rep;S.manual=man;S.stock=stk;pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
     render();
   }catch(e){$('view').innerHTML='<p class="warn">No se pudieron leer los datos: '+esc(e.message)+'</p>';}
 }
 function render(){
-  const T=[['eq','Equipos y repuestos'],['pre','Presupuesto'],['sap','Datos de SAP']].filter(([t])=>t==='sap'?sigmaPuede('importar_catalogo_sap'):(t!=='pre'||sigmaPuedeLeer('Precios')));
+  const T=[['eq','Equipos y repuestos'],['pre','Presupuesto'],['ped','Solicitud de pedido'],['sap','Datos de SAP']].filter(([t])=>t==='sap'?sigmaPuede('importar_catalogo_sap'):((t!=='pre'&&t!=='ped')||sigmaPuedeLeer('Precios')));
   $('tabs').innerHTML=T.map(([t,l])=>`<button class="${S.tab===t?'on':''}" onclick="irTab('${t}')">${l}</button>`).join('');
-  if(S.tab==='eq')(S.sel?viewRep:viewEq)();else({pre:viewPre,sap:viewSap})[S.tab]();
+  if(S.tab==='eq')(S.sel?viewRep:viewEq)();else({pre:viewPre,ped:viewPed,sap:viewSap})[S.tab]();
 }
 function irTab(t){S.tab=t;if(t==='eq')S.sel='';render();}
 
@@ -201,6 +201,100 @@ function exportar(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.lines.map(l=>({Sector:l.s,Criticidad:l.c,Repuesto:l.r.Nombre,Designacion:l.r.Designacion,Codigo:l.r.Codigo_Repuesto,Cantidad:l.q,Costo_Unitario_Cargado:precioBase(l.k),Ajuste_Pct:S.ajuste||0,Costo_Unitario:precio(l.k),Subtotal:l.q*precio(l.k)}))),'Presupuesto');
   XLSX.writeFile(wb,'presupuesto_repuestos.xlsx');
 }
+/* ---------- SOLICITUD DE PEDIDO ---------- */
+async function viewPed(){
+  $('view').innerHTML='Calculando…';
+  try{await cargarSap();}catch(_){}
+  if(S.tab!=='ped')return;
+  const sin=S.eq.filter(e=>!e.Criticidad).length,P=S.ped;
+  $('view').innerHTML=`<p class="hint">Repuestos instalados en los equipos, agrupados por código SAP y por categoría. Completá los cambios previstos y el stock mínimo de cada uno y SIGMA calcula cuánto pedir descontando el stock de SAP.</p>
+   <div id="pkp"></div>
+   <div class="bar"><label><input type="checkbox" ${P.soloPedir?'checked':''} onchange="S.ped.soloPedir=this.checked;drawPed()"> Mostrar solo lo que hay que pedir</label>
+    <select id="pcat" onchange="S.ped.cat=this.value;drawPed()"><option value="">Todas las categorías</option>${CATEGORIAS.map(c=>`<option ${P.cat===c?'selected':''}>${c}</option>`).join('')}</select>
+    <button onclick="exportarPedido()">Exportar solicitud a Excel</button></div>
+   <details ${S.opt?'open':''} ontoggle="S.opt=this.open"><summary>Equipos incluidos</summary><div class="bar">Criticidad:
+    ${['A','B','C','?'].map(c=>`<label><input type="checkbox" ${S.crit.has(c)?'checked':''} onchange="this.checked?S.crit.add('${c}'):S.crit.delete('${c}');viewPed()"> ${c==='?'?'Sin clasificar ('+sin+')':c}</label>`).join(' ')}</div></details>
+   <div id="pbody"></div>
+   <h3>Otros ítems (herramientas, bulonería especial, grasas…)</h3>
+   <p><small>Lo que no sale de los equipos instalados se agrega a mano y entra en la solicitud tal cual.</small></p>
+   <div id="pman"></div>`;
+  drawPed();drawManual();
+}
+function stockMap(){const m=new Map();S.stock.forEach(r=>{const k=claveSap(r.Codigo_SAP);if(k)m.set(k,num(r.Stock));});return m;}
+function descMap(){const m=new Map();[...S.sap.cat,...S.sap.des].forEach(r=>{const k=claveSap(r.Codigo_SAP);if(k&&r.Descripcion)m.set(k,r.Descripcion);});return m;}
+function drawPed(){
+  const P=S.ped,R=calcularPedido(S.rep,S.eq,S.pre,stockMap(),descMap(),S.crit);
+  P.items=[...R.items,...R.sinCodigo];P.R=R;
+  const manual=S.manual.map(m=>({...m,_c:num(m.Cantidad)}));
+  const aPedir=R.items.filter(i=>i.aPedir>0),costo=aPedir.reduce((t,i)=>t+i.aPedir*i.costo,0);
+  const sinStock=!S.stock.length;
+  $('pkp').innerHTML=`<div class="kp"><div><b>${aPedir.length+manual.length}</b>Renglones a pedir</div><div><b>${R.items.length}</b>Repuestos con código SAP</div>
+   <div><b class="${R.sinCodigo.length?'warn':''}">${R.sinCodigo.length}</b>Sin código SAP (no se pueden pedir)</div><div><b>${fmt(costo)}</b>Costo estimado de lo que sale de los equipos</div></div>`+
+   (sinStock?`<p class="warn"><small>Todavía no hay stock cargado: se está pidiendo todo. Cargá el listado de SAP en «Datos de SAP» (tiene que traer la columna de stock «Libre utilización») para descontar lo que ya hay.</small></p>`:'')+
+   (R.sinCantidad?`<p><small>${R.sinCantidad} repuestos instalados no tienen cantidad cargada y no se cuentan.</small></p>`:'');
+  const cats=CATEGORIAS.filter(c=>!P.cat||c===P.cat);
+  let html='';
+  cats.forEach(c=>{
+    const todos=R.items.filter(i=>i.cat===c),vis=todos.filter(i=>!P.soloPedir||i.aPedir>0);
+    if(!vis.length)return;
+    html+=`<details open><summary>${c} · ${vis.length} repuestos · ${vis.reduce((t,i)=>t+i.aPedir,0)} unidades a pedir</summary>${vis.length?filasPed(vis):''}</details>`;
+  });
+  if(R.sinCodigo.length&&!P.cat)html+=`<details><summary>Sin código SAP · ${R.sinCodigo.length} repuestos</summary><p><small>Asignales un código en «Equipos y repuestos» (o con «Cambiar códigos» en Datos de SAP) para que entren en la solicitud.</small></p>${filasPed(R.sinCodigo,true)}</details>`;
+  $('pbody').innerHTML=html||'<p>No hay nada para pedir con estas opciones.</p>';
+}
+function filasPed(lista,sc){
+  const P=S.ped;
+  return `<div class="sc"><table><tr>${sc?'':'<th>Código SAP</th>'}<th>Material</th><th class="num">Instalados</th><th>Cambios previstos por equipo</th><th>Stock mínimo</th><th class="num">Stock SAP</th><th class="num">A pedir</th><th>Categoría</th></tr>`+
+   lista.map(i=>{const n=P.items.indexOf(i),dnd=[...new Set(i.usos.map(u=>u.equipo))];
+    return `<tr>${sc?'':`<td>${esc(i.cod)}</td>`}<td>${esc(i.material)}<br><small title="${esc(dnd.join(', '))}">${dnd.length} equipo${dnd.length===1?'':'s'}${i.costo?' · '+fmt(i.costo)+' c/u':''}</small></td><td class="num">${i.inst}</td>
+    <td><input data-requiere-bloquear="guardar_precio" type="number" min="0" step="any" value="${i.cambios||''}" placeholder="0" onchange="setPed(${n},'Cambios_Previstos',this.value)"></td>
+    <td><input data-requiere-bloquear="guardar_precio" type="number" min="0" step="any" value="${i.smin||''}" placeholder="0" onchange="setPed(${n},'Stock_Min',this.value)"></td>
+    <td class="num">${i.stock==null?'—':i.stock}</td><td class="num"><b>${i.aPedir}</b></td>
+    <td><select data-requiere-bloquear="guardar_precio" onchange="setPed(${n},'Categoria',this.value)">${CATEGORIAS.map(c=>`<option ${i.cat===c?'selected':''}>${c}</option>`).join('')}</select></td></tr>`;}).join('')+'</table></div>';
+}
+async function setPed(n,campo,v){
+  const it=S.ped.items[n];if(!it)return;
+  const p=S.pre[it.k]||(S.pre[it.k]={Clave_Repuesto:it.k,Codigo_Repuesto:it.r.Codigo_Repuesto,Nombre:it.r.Nombre,Designacion:it.r.Designacion});
+  p[campo]=campo==='Categoria'?v:(v===''?'':Number(v));
+  drawPed();
+  try{await sigmaPost('guardar_precio',{...p});sigmaToast('Guardado');}catch(e){sigmaToast('No se pudo guardar: '+e.message);}
+}
+function drawManual(){
+  const box=$('pman');if(!box)return;
+  box.innerHTML=(S.manual.length?`<div class="sc"><table><tr><th>Código SAP</th><th>Descripción</th><th>Categoría</th><th class="num">Cantidad</th><th></th></tr>`+
+   S.manual.map((m,i)=>`<tr><td>${esc(m.Codigo_SAP)||'—'}</td><td>${esc(m.Descripcion)}</td><td>${esc(m.Categoria)}</td><td class="num">${esc(m.Cantidad)}</td>
+   <td><button class="b" data-requiere="eliminar_pedido_manual" onclick="delManual(${i})">Quitar</button></td></tr>`).join('')+'</table></div>':'<p><small>Todavía no agregaste ítems.</small></p>')+
+   `<div class="bar" data-requiere="guardar_pedido_manual"><input id="mcod" placeholder="Código SAP" onchange="autoDesc()"><input id="mdes" placeholder="Descripción" style="min-width:240px">
+    <select id="mcat">${CATEGORIAS.map(c=>`<option ${c==='Herramientas'?'selected':''}>${c}</option>`).join('')}</select><input id="mcan" type="number" min="0" step="any" placeholder="Cantidad" style="max-width:110px">
+    <button onclick="addManual()">Agregar</button></div>`;
+}
+function autoDesc(){const d=descMap().get(claveSap($('mcod').value));if(d&&!$('mdes').value)$('mdes').value=d;}
+async function addManual(){
+  const o={Codigo_SAP:$('mcod').value.trim(),Descripcion:$('mdes').value.trim(),Categoria:$('mcat').value,Cantidad:num($('mcan').value)};
+  if(!o.Codigo_SAP&&!o.Descripcion)return sigmaToast('Poné el código SAP o una descripción');
+  if(!(o.Cantidad>0))return sigmaToast('La cantidad tiene que ser mayor que 0');
+  try{const r=await sigmaApi('guardar_pedido_manual',o);S.manual.push({...o,Id:r.Id});drawManual();drawPed();sigmaToast('Agregado');}catch(e){sigmaToast('No se pudo agregar: '+e.message);}
+}
+async function delManual(i){
+  const m=S.manual[i];if(!m||!confirm('¿Quitar este ítem de la solicitud?'))return;
+  try{await sigmaApi('eliminar_pedido_manual',{Id:m.Id});S.manual.splice(i,1);drawManual();drawPed();sigmaToast('Quitado');}catch(e){sigmaToast('No se pudo quitar: '+e.message);}
+}
+function exportarPedido(){
+  const R=S.ped.R||calcularPedido(S.rep,S.eq,S.pre,stockMap(),descMap(),S.crit);
+  const ord=c=>CATEGORIAS.indexOf(c);
+  const filas=[...R.items.filter(i=>i.aPedir>0).map(i=>({Categoria:i.cat,Codigo_SAP:i.cod,Material:i.material,Cantidad_a_pedir:i.aPedir,Stock_SAP:i.stock==null?'':i.stock,Costo_unitario:i.costo||'',Subtotal:i.costo?i.costo*i.aPedir:''})),
+    ...S.manual.map(m=>({Categoria:m.Categoria,Codigo_SAP:m.Codigo_SAP,Material:m.Descripcion,Cantidad_a_pedir:num(m.Cantidad),Stock_SAP:'',Costo_unitario:'',Subtotal:''}))]
+    .sort((a,b)=>ord(a.Categoria)-ord(b.Categoria)||norm(a.Material).localeCompare(norm(b.Material)));
+  if(!filas.length)return sigmaToast('No hay nada para pedir');
+  const det=[];R.items.forEach(i=>i.usos.forEach(u=>det.push({Categoria:i.cat,Codigo_SAP:i.cod,Material:i.material,Equipo:u.equipo,Sector:u.sector,Criticidad:u.crit,Cantidad_instalada:u.q})));
+  const sinC=R.sinCodigo.map(i=>({Categoria:i.cat,Repuesto:i.r.Nombre,Designacion:i.r.Designacion,Equipos:[...new Set(i.usos.map(u=>u.equipo))].join(', '),Cantidad_instalada:i.inst}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(filas),'Solicitud de pedido');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(det),'Detalle por equipo');
+  if(sinC.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sinC),'Sin código SAP');
+  XLSX.writeFile(wb,'solicitud_de_pedido.xlsx');
+}
+
 /* ---------- CATÁLOGO SAP ---------- */
 /* ===== INICIO LÓGICA SAP ===== */
 const sinTilde=t=>String(t==null?'':t).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -302,7 +396,7 @@ function clasificarSap(desc,grupo,grupoReal){
 }
 /** Arma las filas a importar a partir de la matriz del archivo, el mapeo y las decisiones anteriores. */
 function prepararImportacion(m,fila,map,previas,sobreescribir){
-  const filas=new Map(),r={leidas:0,sin_codigo:0,duplicadas:0,sin_precio:0,precio_calculado:0,sin_stock:0};
+  const filas=new Map(),r={leidas:0,sin_codigo:0,duplicadas:0,sin_precio:0,precio_calculado:0,sin_stock:0},stk=new Map();
   const derivado=map.grupo==null&&map.grupo2==null,calc=map.precio==null&&map.stock!=null&&map.valor!=null;
   const acc=new Map();
   for(let i=fila+1;i<m.length;i++){
@@ -322,6 +416,7 @@ function prepararImportacion(m,fila,map,previas,sobreescribir){
       const st=parsePrecio(f[map.stock]),va=parsePrecio(f[map.valor]);
       if(st!==''&&va!==''&&st>0){const a=acc.get(k)||{s:0,v:0};a.s+=st;a.v+=va;acc.set(k,a);}
     }
+    if(map.stock!=null){const sv=parsePrecio(f[map.stock]);if(sv!==''){const x=stk.get(k)||{Codigo_SAP:cod,Stock:0};x.Stock+=sv;stk.set(k,x);}}
     if(filas.has(k)){r.duplicadas++;const a=filas.get(k);if(precio!==''&&a.Precio==='')a.Precio=precio;if(!a.Descripcion&&desc)a.Descripcion=desc;continue;}
     const prev=previas.get(k),prop=clasificarSap(desc,grupo,!derivado);
     filas.set(k,{Codigo_SAP:cod,Descripcion:desc,Unidad:unidad,Grupo_Articulos:grupo,Precio:precio,
@@ -333,9 +428,66 @@ function prepararImportacion(m,fila,map,previas,sobreescribir){
     if(f.Precio==='')r.sin_precio++;
   });
   r.derivado=derivado;r.calculado=calc;
-  return{filas:Array.from(filas.values()),res:r};
+  return{filas:Array.from(filas.values()),res:r,stock:Array.from(stk.values()).map(x=>({Codigo_SAP:x.Codigo_SAP,Stock:Math.round(x.Stock*1000)/1000}))};
 }
 /* ===== FIN LÓGICA SAP ===== */
+
+/* ===== INICIO LÓGICA PEDIDO ===== */
+const CATEGORIAS=['Rodamientos','Retenes','Sellos y empaquetaduras','Acoples y elásticos','Correas y transmisión','Partes mecánicas','Bulonería y fijaciones','Filtros y lubricantes','Herramientas','Otros'];
+const REGLAS_CAT=[
+  ['Rodamientos',/\b(rodam|manguito)/],['Retenes',/\breten/],
+  ['Sellos y empaquetaduras',/sello|empaquet|vedacion|junta|o ring|oring|goma buna/],
+  ['Acoples y elásticos',/acople|periflex|gummi|fundal|manchon|buje de goma|elastico/],
+  ['Correas y transmisión',/correa|cadena|polea|catalina|freno|pastilla/],
+  ['Filtros y lubricantes',/filtro|aceite|grasa|lubric/],
+  ['Bulonería y fijaciones',/bulon|tuerca|arandela|prisionero|chaveta|pasador|perno|tornillo|esparrago|cuna/],
+  ['Herramientas',/herramient|extractor|calibre|torquimetro|pinza/],
+  ['Partes mecánicas',/impulsor|rotor|estator|difusor|disco|cabezal|cuerpo|camisa|\beje\b|diafragma|membrana|cojinete|buje|soporte|articulacion|pala\b/]
+];
+/** Categoría sugerida según el nombre y la designación del repuesto (se puede corregir a mano). */
+function categoriaDe(r){
+  const t=sinTilde((r.Nombre||'')+' '+(r.Designacion||''));
+  for(const [c,re] of REGLAS_CAT)if(re.test(t))return c;
+  return 'Otros';
+}
+/**
+ * Agrupa los repuestos instalados por código SAP y calcula cuánto pedir (misma lógica que la planilla):
+ *   previstos = instalados × (1 + cambios previstos por equipo)
+ *   a pedir   = previstos + stock mínimo − stock en SAP   (nunca menos que 0)
+ * Los repuestos sin código (S/C) no se pueden pedir: salen aparte hasta que se les asigne uno.
+ */
+function calcularPedido(rep,eq,pre,stockMap,descMap,crit){
+  const cr={},sc={},nom={};
+  eq.forEach(e=>{cr[e.Codigo_SIGMA]=e.Criticidad||'?';sc[e.Codigo_SIGMA]=e.Sector||'?';nom[e.Codigo_SIGMA]=e.Maquina||e.Codigo_SIGMA;});
+  const M=new Map();let sinCantidad=0;
+  rep.forEach(r=>{
+    const c=cr[r.Codigo_Equipo]||'?';if(!crit.has(c))return;
+    const q=num(r['Cant.']);if(!(q>0)){sinCantidad++;return;}
+    const cod=norm(r.Codigo_Repuesto),sc_=!cod||cod==='S/C',k=clave(r);
+    const key=sc_?k:'C|'+claveSap(cod);
+    let it=M.get(key);
+    if(!it){it={key,k,r,cod:sc_?'':cod,keys:[],inst:0,usos:[]};M.set(key,it);}
+    if(!it.keys.includes(k))it.keys.push(k);
+    it.inst+=q;it.usos.push({equipo:nom[r.Codigo_Equipo]||r.Codigo_Equipo,sector:sc[r.Codigo_Equipo]||'?',crit:c,q});
+  });
+  const dato=(it,campo)=>{for(const k of it.keys){const v=pre[k]&&pre[k][campo];if(v!==undefined&&v!=='')return v;}return '';};
+  const items=[],sinCodigo=[];
+  M.forEach(it=>{
+    const sk=it.cod?claveSap(it.cod):'';
+    it.material=(sk&&descMap.get(sk))||[it.r.Nombre,it.r.Designacion].filter(Boolean).join(' · ')||it.cod||'(sin nombre)';
+    it.cat=dato(it,'Categoria')||categoriaDe(it.r);
+    it.cambios=num(dato(it,'Cambios_Previstos'));it.smin=num(dato(it,'Stock_Min'));
+    it.stock=sk&&stockMap.has(sk)?stockMap.get(sk):null;
+    it.previstos=it.inst*(1+it.cambios);
+    it.aPedir=Math.max(0,Math.ceil(it.previstos+it.smin-(it.stock||0)-1e-9));
+    it.costo=num(dato(it,'Costo_Unitario'));
+    (it.cod?items:sinCodigo).push(it);
+  });
+  const ord=(a,b)=>CATEGORIAS.indexOf(a.cat)-CATEGORIAS.indexOf(b.cat)||norm(a.material).localeCompare(norm(b.material));
+  items.sort(ord);sinCodigo.sort(ord);
+  return{items,sinCodigo,sinCantidad};
+}
+/* ===== FIN LÓGICA PEDIDO ===== */
 
 async function cargarSap(forzar){
   const A=S.sap;if(A.cargado&&!forzar)return;
@@ -444,6 +596,8 @@ async function confirmarImportacion(){
   const b=$('btnImp');b.disabled=true;b.textContent='Importando… puede tardar unos segundos';
   try{
     const r=await sigmaApi('importar_catalogo_sap',{filas});
+    const stk=I.prep.stock||[];
+    if(stk.length){try{await sigmaApi('guardar_stock_sap',{filas:stk});S.stock=await sigmaFetchTab('Stock_SAP').catch(()=>[]);}catch(e){sigmaToast('Se importó el catálogo, pero no se pudo guardar el stock: '+e.message);}}
     S.sap.imp=null;await cargarSap(true);viewSap();
     sigmaToast(`Importado: ${r.nuevos} nuevos, ${r.actualizados} actualizados, ${r.precios_cambiados} con cambio de precio, ${r.descartados_nuevos} descartados`);
   }catch(e){b.disabled=false;b.textContent='Reintentar importación';sigmaToast('No se pudo importar: '+e.message);}

@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-21-v20-cambio-codigos";
+const VERSION_SCRIPT = "2026-10-24-v21-solicitud-pedido";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -189,6 +189,12 @@ function ejecutarEscritura_(accion, body) {
       return nombresSap_(body);
     case "cambiar_codigos":
       return cambiarCodigos_(body);
+    case "guardar_stock_sap":
+      return guardarStockSap_(body);
+    case "guardar_pedido_manual":
+      return guardarPedidoManual_(body);
+    case "eliminar_pedido_manual":
+      return eliminarPedidoManual_(body);
     case "registrar_inspeccion":
       return registrarInspeccion_(body);
     case "actualizar_ambiental":
@@ -503,6 +509,11 @@ function guardarPrecio_(body) {
   const sheet = hojaOCrear_(SHEETS.PRECIOS,
     ["Clave_Repuesto", "Codigo_Repuesto", "Nombre", "Designacion", "Costo_Unitario", "Plazo_Dias"]);
   if (!body.Clave_Repuesto) throw new Error("Falta Clave_Repuesto.");
+  // datos de la solicitud de pedido (se crean las columnas la primera vez que se usan)
+  ["Categoria", "Stock_Min", "Cambios_Previstos"].forEach(c => { if (body[c] !== undefined) asegurarColumna_(sheet, c); });
+  ["Stock_Min", "Cambios_Previstos"].forEach(c => {
+    if (body[c] !== undefined && body[c] !== "" && !(isFinite(Number(body[c])) && Number(body[c]) >= 0)) throw new Error(c.replace("_", " ") + " debe ser un número mayor o igual a 0.");
+  });
   const fila = buscarFila_(sheet, "Clave_Repuesto", body.Clave_Repuesto);
   if (fila === -1) agregarFilaPorEncabezados_(sheet, body);
   else actualizarFila_(sheet, fila, body);
@@ -550,12 +561,12 @@ const ROLES = {
 // Pestañas de datos del sistema (la hoja "Usuarios" NO está en ninguna lista: nadie puede leerla desde la web)
 const PESTANAS_OPERATIVAS = ["Equipos", "Mantenimientos", "Ordenes_de_Trabajo", "Imagenes", "Variables",
   "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones", "Campanias", "Inspecciones"];
-const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios", "Catalogo_SAP", "SAP_Descartados"]);
+const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios", "Catalogo_SAP", "SAP_Descartados", "Stock_SAP", "Pedido_Manual"]);
 
 const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
   "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
   "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
-  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap", "cambiar_codigos",
+  "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap", "cambiar_codigos", "guardar_stock_sap", "guardar_pedido_manual", "eliminar_pedido_manual",
   "registrar_inspeccion", "actualizar_ambiental"];
 
 // Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
@@ -1954,6 +1965,63 @@ function copiarCostos_(pares) {
   });
   if (nuevas.length) sp.getRange(sp.getLastRow() + 1, 1, nuevas.length, h.length).setValues(nuevas);
   return nuevas.length;
+}
+
+
+/* ============================================================
+   SOLICITUD DE PEDIDO (repuestos.html → "Solicitud de pedido")
+   Stock_SAP: foto del stock del último listado de SAP (se reemplaza completa en cada carga).
+   Pedido_Manual: renglones que no salen de los equipos (herramientas, bulonería, grasas…).
+   ============================================================ */
+const CATEGORIAS_PEDIDO = ["Rodamientos", "Retenes", "Sellos y empaquetaduras", "Acoples y elásticos", "Correas y transmisión",
+  "Partes mecánicas", "Bulonería y fijaciones", "Filtros y lubricantes", "Herramientas", "Otros"];
+
+/** body.filas = [{Codigo_SAP, Stock}]. Reemplaza el contenido de la pestaña Stock_SAP. */
+function guardarStockSap_(body) {
+  const entrada = Array.isArray(body.filas) ? body.filas : [];
+  if (entrada.length > MAX_FILAS_SAP) throw new Error("Son demasiados artículos (máximo " + MAX_FILAS_SAP + ").");
+  const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const mapa = new Map();
+  entrada.forEach(f => {
+    const k = claveSap_(f.Codigo_SAP), st = Number(f.Stock);
+    if (!k || !isFinite(st) || st < 0) return;
+    mapa.set(k, [String(f.Codigo_SAP).trim(), st, hoy]);
+  });
+  const hoja = hojaSap_("Stock_SAP", ["Codigo_SAP", "Stock", "Fecha_Carga"], [1, 3]);
+  escribirHojaSap_(hoja, Array.from(mapa.values()), 3, [1, 3]);
+  return {accion: "guardar_stock_sap", guardados: mapa.size};
+}
+
+function validarPedidoManual_(body) {
+  const codigo = String(body.Codigo_SAP == null ? "" : body.Codigo_SAP).trim();
+  const descripcion = String(body.Descripcion == null ? "" : body.Descripcion).trim();
+  const categoria = CATEGORIAS_PEDIDO.indexOf(body.Categoria) >= 0 ? body.Categoria : "Otros";
+  const cantidad = Number(body.Cantidad);
+  if (!descripcion && !codigo) throw new Error("Falta el código SAP o la descripción.");
+  if (descripcion.length > 200 || codigo.length > 40) throw new Error("El código o la descripción son demasiado largos.");
+  if (!isFinite(cantidad) || cantidad <= 0 || cantidad > 1000000) throw new Error("La cantidad debe ser un número mayor que 0.");
+  return {Codigo_SAP: codigo, Descripcion: descripcion, Categoria: categoria, Cantidad: cantidad};
+}
+
+function guardarPedidoManual_(body) {
+  const d = validarPedidoManual_(body);
+  const sheet = hojaOCrear_("Pedido_Manual", ["Id", "Codigo_SAP", "Descripcion", "Categoria", "Cantidad", "Fecha"]);
+  sheet.getRange(1, 2, Math.max(sheet.getMaxRows(), 2), 1).setNumberFormat("@");
+  const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  let id = String(body.Id == null ? "" : body.Id).trim(), fila = id ? buscarFila_(sheet, "Id", id) : -1;
+  if (fila === -1) {
+    id = "PM-" + new Date().getTime();
+    agregarFilaPorEncabezados_(sheet, Object.assign({Id: id, Fecha: hoy}, d));
+  } else actualizarFila_(sheet, fila, d);
+  return {accion: "guardar_pedido_manual", Id: id, actualizado: fila !== -1};
+}
+
+function eliminarPedidoManual_(body) {
+  const sheet = hoja_("Pedido_Manual");
+  const fila = buscarFila_(sheet, "Id", String(body.Id == null ? "" : body.Id).trim());
+  if (fila === -1) throw new Error("No se encontró ese renglón.");
+  sheet.deleteRow(fila);
+  return {accion: "eliminar_pedido_manual"};
 }
 
 /* ============================================================
