@@ -68,17 +68,14 @@
   <div class="plate panel guia">
     <details class="config">
       <summary>Guía del procedimiento de inspección</summary>
-      <h3>Niveles, frecuencia y responsable</h3>
+      <h3>Ronda diaria y responsable</h3>
       <div class="table-scroll" style="max-height:none;"><table class="sigma-table">
-        <thead><tr><th>Nivel</th><th>Frecuencia</th><th>Responsable</th><th>Alcance</th></tr></thead>
+        <thead><tr><th>Ronda</th><th>Frecuencia</th><th>Responsable</th><th>Alcance</th></tr></thead>
         <tbody>
-          <tr><td>1 · Ronda sensorial</td><td>Cada turno</td><td>Operador</td><td>Ruido, olor, fugas, temperatura al tacto, vibración percibida</td></tr>
-          <tr><td>2 · Inspección visual</td><td>Semanal</td><td>Encargado</td><td>Nivel de aceite, sellado, fijaciones</td></tr>
-          <tr><td>3 · Medición de parámetros de interés</td><td>Mensual</td><td>Supervisor</td><td>Vibración, termografía, alineación, lubricación</td></tr>
-          <tr><td>4 · Inspección detallada</td><td>Anual o en parada</td><td>Supervisor</td><td>Equipo detenido: huelgos, acople, base, estado interno</td></tr>
+          <tr><td>Ronda sensorial</td><td>Cada turno</td><td>Operador</td><td>Ruido, olor, fugas, temperatura al tacto, vibración percibida, contención y entorno</td></tr>
         </tbody>
       </table></div>
-      <p style="color:var(--steel-400);font-size:.8rem;margin:.5rem 0 0;">Cada nivel incluye los puntos de los anteriores. La frecuencia se aumenta en bombas críticas (sin equipo de reserva, con producto abrasivo o a alta temperatura).</p>
+      <p style="color:var(--steel-400);font-size:.8rem;margin:.5rem 0 0;">La frecuencia se aumenta en bombas críticas (sin equipo de reserva, con producto abrasivo o a alta temperatura).</p>
       <h3>Criterios de aceptación (referenciales)</h3>
       <div class="table-scroll" style="max-height:none;"><table class="sigma-table">
         <thead><tr><th>Variable</th><th>Normal</th><th>Alerta</th><th>Acción inmediata</th></tr></thead>
@@ -112,15 +109,7 @@
     <p style="margin:0 0 1rem;color:var(--steel-400);font-size:.85rem;" id="form-sub"></p>
     <form id="form-insp" autocomplete="off">
       <div class="field-row">
-        <div class="field">
-          <label for="f-nivel">Nivel de inspección</label>
-          <select id="f-nivel">
-            <option value="1">1 · Ronda sensorial (cada turno)</option>
-            <option value="2">2 · Inspección visual (semanal)</option>
-            <option value="3">3 · Medición de parámetros (mensual)</option>
-            <option value="4">4 · Inspección detallada (anual o en parada)</option>
-          </select>
-        </div>
+        <input type="hidden" id="f-nivel" value="1">
         <div class="field">
           <label for="f-fecha">Fecha y hora de la inspección</label>
           <input type="datetime-local" id="f-fecha" required>
@@ -178,7 +167,7 @@
     <div class="panel-head"><h2>Bombas en el control ambiental</h2></div>
     <div class="table-scroll" style="max-height:none;">
       <table class="sigma-table" id="tabla-bombas">
-        <thead><tr><th>Bomba</th><th>Servicio</th><th>Prioridad</th><th>Última inspección</th><th title="Verde: al día. Naranja: vencida. Gris: sin registro">Rondas</th><th></th></tr></thead>
+        <thead><tr><th>Bomba</th><th>Servicio</th><th>Prioridad</th><th>Última inspección</th><th title="Al día: hay ronda en las últimas 8 h. Vencida: pasó el turno. Sin ronda: sin registro">Ronda</th><th></th></tr></thead>
         <tbody><tr><td colspan="6" class="empty-state">Cargando…</td></tr></tbody>
       </table>
     </div>
@@ -227,35 +216,19 @@ document.getElementById("nav-slot").innerHTML = sigmaRenderNav("inspecciones");
    coincidir con ITEMS_INSPECCION de Code.gs (el servidor vuelve a validar y
    a clasificar: lo de acá es la comodidad de mostrar el resultado previo).
    --------------------------------------------------------------- */
-const GRUPOS = {m:"Con la bomba en marcha", g:"Estado general del equipo", a:"Control ambiental", d:"Con la bomba detenida (nivel 4)"};
+const GRUPOS = {m:"Con la bomba en marcha", g:"Estado general del equipo", a:"Control ambiental"};
 const ITEMS = [
   {id:"m1",nivel:1,texto:"Ruido: sin golpeteo, chirridos ni sonido de grava (cavitación)"},
   {id:"m2",nivel:1,texto:"Vibración: sin aumento perceptible frente a la ronda anterior"},
-  {id:"m3",nivel:2,texto:"Presión de succión y descarga estables y dentro del rango de operación"},
-  {id:"m4",nivel:3,texto:"Corriente del motor dentro del valor de placa y sin oscilaciones"},
   {id:"m5",nivel:1,texto:"Temperatura de rodamientos y carcasa del motor sin elevación anormal"},
   {id:"m6",nivel:1,texto:"Sellado: sin goteo excesivo en sello mecánico (o goteo normal en empaquetadura)"},
-  {id:"m7",nivel:2,texto:"Instrumentos locales (manómetros, termómetros) legibles y operativos"},
   {id:"g1",nivel:1,texto:"Sin fugas en bridas, juntas, drenajes ni conexiones"},
-  {id:"g2",nivel:2,texto:"Tornillos de base, carcasa y acople completos y ajustados"},
   {id:"g3",nivel:1,texto:"Guarda del acople colocada y en buen estado"},
-  {id:"g4",nivel:2,texto:"Nivel y color del aceite correctos; respiradero limpio; grasa según plan"},
-  {id:"g5",nivel:2,texto:"Tuberías y soportes sin tensiones ni vibración; sin deformación de la base"},
-  {id:"g6",nivel:2,texto:"Corrosión, pintura y orden y limpieza del entorno"},
-  {id:"g7",nivel:2,texto:"Ventilación del motor libre, sin acumulación de bagazo, polvo o producto"},
-  {id:"a1",nivel:1,texto:"Contención (bandeja, muro o cubeto) íntegra, limpia y sin líquido acumulado"},
-  {id:"a2",nivel:2,texto:"Drenaje de la contención cerrado y sin conexión directa a canal o desagüe"},
+  {id:"a1",nivel:1,texto:"Contención (bandeja o muro) íntegra, limpia y sin líquido acumulado"},
   {id:"a3",nivel:1,texto:"Sin manchas, charcos, goteos ni humedad en el suelo alrededor de la bomba"},
   {id:"a4",nivel:1,texto:"Sin rastros de producto en canaletas, zanjas o alcantarillas cercanas"},
   {id:"a5",nivel:1,texto:"Sello, bridas y válvulas sin fuga; goteras de purga recogidas y no al piso"},
-  {id:"a6",nivel:2,texto:"Alarmas de nivel o de fuga operativas, si la bomba las tiene"},
-  {id:"a7",nivel:2,texto:"Kit antiderrame completo y señalizado cerca del equipo"},
-  {id:"a8",nivel:1,texto:"Olores o espuma anormales avisados al área ambiental"},
-  {id:"d1",nivel:4,texto:"Alineación y estado del acople (elemento flexible, huelgas)"},
-  {id:"d2",nivel:4,texto:"Juego axial y radial del eje; giro libre a mano"},
-  {id:"d3",nivel:4,texto:"Estado de sello o empaquetadura y camisas del eje"},
-  {id:"d4",nivel:4,texto:"Desgaste visible de rodete, anillos de desgaste y carcasa si se abre"},
-  {id:"d5",nivel:4,texto:"Pata coja y estado de la bancada"}
+  {id:"a8",nivel:1,texto:"Olores o espuma anormales avisados al área ambiental"}
 ];
 const CLASES = ["Normal","Alerta","Crítico","Riesgo para personas"];
 const FUGA = ["Ninguna visible","Gota ocasional","Goteo continuo o chorro"];
@@ -265,8 +238,8 @@ const TEMP_ALERTA = 70, TEMP_CRITICA = 90;
 const PLAZOS = ["", "antes de 7 días", "inmediato o en la primera ventana", "en el acto"];
 
 /* Frecuencia de cada nivel, en horas. El nivel 1 es "cada turno": se asume turno de 8 h (planta 24 h, 3 turnos). */
-const FRECUENCIA_H = {1: 8, 2: 24 * 7, 3: 24 * 30, 4: 24 * 365};
-const FRECUENCIA_TXT = {1: "cada turno", 2: "semanal", 3: "mensual", 4: "anual o en parada"};
+const FRECUENCIA_H = {1: 8};
+const FRECUENCIA_TXT = {1: "cada turno"};
 
 /* Servicios típicos del ingenio y su prioridad ambiental sugerida (tabla "Alcance" del procedimiento). */
 const SERVICIOS = [
@@ -293,18 +266,18 @@ const PASOS_DERRAME = [
 function estadoRondas(cod){
   const ahora = Date.now();
   const propias = inspecciones.filter(i => i.Codigo_Equipo === cod);
-  return [1, 2, 3, 4].map(n => {
+  return [1].map(n => {
     let t = 0;
     propias.forEach(i => { if(parseInt(i.Nivel, 10) >= n){ const x = new Date(i.Fecha_Hora).getTime() || 0; if(x > t) t = x; } });
-    if(!t) return {n, estado: "sin", detalle: `Nivel ${n} (${FRECUENCIA_TXT[n]}): sin registro`};
+    if(!t) return {n, estado: "sin", detalle: `Ronda (${FRECUENCIA_TXT[n]}): sin registro`};
     const horas = (ahora - t) / 36e5;
     const vencida = horas > FRECUENCIA_H[n];
     const ultima = sigmaFmtFechaHora(new Date(t).toISOString());
-    return {n, estado: vencida ? "venc" : "ok", detalle: `Nivel ${n} (${FRECUENCIA_TXT[n]}): última ${ultima}${vencida ? " — vencida" : ""}`};
+    return {n, estado: vencida ? "venc" : "ok", detalle: `Ronda (${FRECUENCIA_TXT[n]}): última ${ultima}${vencida ? " — vencida" : ""}`};
   });
 }
 const chipsRondas = cod => `<div class="rondas">${estadoRondas(cod).map(r =>
-  `<span class="ronda ${r.estado}" title="${sigmaEsc(r.detalle)}">N${r.n}</span>`).join("")}</div>`;
+  `<span class="ronda ${r.estado}" title="${sigmaEsc(r.detalle)}">${r.estado === "ok" ? "Al día" : r.estado === "venc" ? "Vencida" : "Sin ronda"}</span>`).join("")}</div>`;
 
 document.getElementById("pasos-derrame-lista").innerHTML = PASOS_DERRAME.map(t => `<li>${sigmaEsc(t)}</li>`).join("");
 document.getElementById("pasos-derrame-guia").innerHTML = PASOS_DERRAME.map(t => `<li>${sigmaEsc(t)}</li>`).join("");
@@ -410,7 +383,6 @@ function abrirForm(cod){
 }
 function cerrarForm(){ document.getElementById("panel-form").hidden = true; bombaActual = null; }
 
-document.getElementById("f-nivel").addEventListener("change", pintarChecklist);
 document.getElementById("checklist").addEventListener("change", ev => {
   const inp = ev.target;
   if(!inp.name || !inp.name.startsWith("it-")) return;
