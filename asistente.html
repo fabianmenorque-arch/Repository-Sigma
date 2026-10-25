@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA — Asistente | Ingenio Bella Vista</title>
+<link rel="stylesheet" href="sigma-styles.css">
+<script src="sigma-utils.js"></script>
+<style>
+  .asistente-wrap{display:flex;flex-direction:column;height:calc(100vh - 3.2rem);min-height:480px;}
+  .asistente-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;}
+  .asistente-head h1{margin-bottom:.15rem;}
+  .asistente-head p{margin:0;color:var(--steel-400);font-size:.82rem;max-width:62ch;}
+  .chat{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+  .chat-log{flex:1;overflow-y:auto;padding:1.2rem 1.3rem;display:flex;flex-direction:column;gap:1rem;scroll-behavior:smooth;}
+
+  .bienvenida{margin:auto;max-width:640px;text-align:center;padding:1rem 0;}
+  .bienvenida img{width:52px;height:52px;border-radius:14px;box-shadow:0 0 0 4px var(--amber-glow);}
+  .bienvenida h2{font-size:1.15rem;margin:.9rem 0 .3rem;}
+  .bienvenida p{color:var(--steel-400);font-size:.86rem;margin:0 0 1.2rem;}
+  .sugerencias{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;}
+  .sugerencias button{background:var(--steel-800);color:var(--steel-200);border:1px solid var(--line);box-shadow:none;font-weight:500;font-size:.8rem;padding:.55rem .9rem;text-align:left;}
+  .sugerencias button:hover{border-color:var(--amber-500);background:var(--steel-700);box-shadow:none;}
+
+  .msg{display:flex;gap:.7rem;max-width:min(860px,100%);}
+  .msg.usuario{align-self:flex-end;flex-direction:row-reverse;}
+  .avatar{flex:0 0 30px;width:30px;height:30px;border-radius:9px;}
+  .avatar.yo{background:linear-gradient(135deg,var(--accent-2),var(--amber-500));color:#fff;font-weight:800;font-size:.8rem;display:flex;align-items:center;justify-content:center;}
+  .burbuja{padding:.7rem .95rem;border-radius:14px;font-size:.88rem;line-height:1.5;min-width:0;overflow-wrap:anywhere;}
+  .msg.usuario .burbuja{background:linear-gradient(135deg,var(--amber-500),var(--amber-600));color:#fff;border-bottom-right-radius:4px;white-space:pre-wrap;}
+  .msg.asistente .burbuja{background:var(--steel-800);border:1px solid var(--line);border-top-left-radius:4px;}
+  .msg.error .burbuja{background:rgba(255,88,118,.14);border:1px solid rgba(255,88,118,.35);color:#ff8a9d;}
+
+  .burbuja p{margin:0 0 .6rem;}
+  .burbuja p:last-child,.burbuja ul:last-child,.burbuja ol:last-child{margin-bottom:0;}
+  .burbuja ul,.burbuja ol{margin:0 0 .6rem;padding-left:1.25rem;}
+  .burbuja li{margin:.15rem 0;}
+  .burbuja strong{color:#fff;}
+  .burbuja code{background:rgba(255,255,255,.08);padding:.05rem .35rem;border-radius:5px;font-size:.8rem;}
+  .burbuja pre{background:var(--steel-950);border:1px solid var(--line);border-radius:10px;padding:.7rem .85rem;overflow-x:auto;margin:0 0 .6rem;}
+  .burbuja pre code{background:none;padding:0;}
+  .burbuja .tabla-md{overflow-x:auto;margin:0 0 .6rem;border:1px solid var(--line);border-radius:10px;}
+  .burbuja table{border-collapse:collapse;width:100%;font-size:.8rem;}
+  .burbuja th,.burbuja td{padding:.4rem .65rem;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .burbuja th{background:var(--steel-900);color:var(--steel-400);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;}
+  .burbuja tr:last-child td{border-bottom:none;}
+  .eq-link{display:inline-flex;align-items:baseline;gap:.35rem;font-weight:600;}
+  .eq-link .cod{font-family:var(--font-mono);font-size:.68rem;font-weight:400;color:var(--steel-400);}
+  .msg-acciones{margin-top:.45rem;display:flex;gap:.6rem;}
+  .msg-acciones button{background:none;border:none;box-shadow:none;padding:0;color:var(--steel-400);font-size:.72rem;font-weight:500;}
+  .msg-acciones button:hover{color:var(--amber-400);background:none;box-shadow:none;}
+
+  .pensando{display:flex;align-items:center;gap:.6rem;color:var(--steel-400);font-size:.82rem;}
+  .puntos{display:inline-flex;gap:4px;}
+  .puntos i{width:6px;height:6px;border-radius:50%;background:var(--amber-400);animation:salto 1.2s infinite ease-in-out;}
+  .puntos i:nth-child(2){animation-delay:.15s;}
+  .puntos i:nth-child(3){animation-delay:.3s;}
+  @keyframes salto{0%,80%,100%{opacity:.25;transform:translateY(0);}40%{opacity:1;transform:translateY(-4px);}}
+
+  .chat-form{border-top:1px solid var(--line);padding:.85rem 1rem;display:flex;gap:.7rem;align-items:flex-end;background:rgba(0,0,0,.12);}
+  .chat-form textarea{flex:1;resize:none;min-height:44px;max-height:160px;line-height:1.4;}
+  .chat-form button{height:44px;padding:0 1.3rem;}
+  .pie{font-size:.72rem;color:var(--steel-400);margin-top:.6rem;}
+  @media (max-width:860px){
+    .asistente-wrap{height:calc(100vh - 8rem);}
+    .container{padding:1rem;}
+    .chat-log{padding:.9rem;}
+  }
+  @media (prefers-reduced-motion:reduce){.puntos i{animation:none;opacity:.7;}.chat-log{scroll-behavior:auto;}}
+</style>
+</head>
+<body>
+
+<div id="nav-slot"></div>
+
+<div class="container">
+  <div class="asistente-wrap">
+    <div class="asistente-head">
+      <div>
+        <h1>Asistente SIGMA</h1>
+        <p>Preguntale por órdenes de trabajo, equipos, repuestos, consumos, mediciones o inspecciones. Consulta los datos reales de SIGMA con los permisos de tu usuario y es de solo lectura: no modifica nada.</p>
+      </div>
+      <button class="secondary" id="btn-nueva" type="button">Nueva conversación</button>
+    </div>
+
+    <div class="plate chat">
+      <div class="chat-log" id="log" role="log" aria-live="polite" aria-label="Conversación con el asistente"></div>
+      <form class="chat-form" id="form" autocomplete="off">
+        <textarea id="pregunta" rows="1" maxlength="2000" placeholder="Escribí tu pregunta…  (Enter envía, Shift+Enter salto de línea)" aria-label="Tu pregunta"></textarea>
+        <button type="submit" id="btn-enviar">Enviar</button>
+      </form>
+    </div>
+    <div class="pie">El asistente puede equivocarse: verificá los datos importantes en la pantalla correspondiente (Órdenes, Informes, Repuestos…).</div>
+  </div>
+</div>
+
+<script>
+document.getElementById("nav-slot").innerHTML = sigmaRenderNav("asistente");
+
+const CLAVE_CHARLA = "sigma_asistente_v1";
+const MAX_ENVIADOS = 12;          // mensajes de la charla que se reenvían (el servidor aplica el mismo tope)
+const log = document.getElementById("log");
+const form = document.getElementById("form");
+const campo = document.getElementById("pregunta");
+const btnEnviar = document.getElementById("btn-enviar");
+
+let charla = [];                  // [{rol:"user"|"assistant", texto}]
+let nombres = {};                 // Codigo_SIGMA → Maquina
+let esperando = false;
+
+const SUGERENCIAS = [
+  "¿Qué órdenes de trabajo abiertas tienen prioridad alta?",
+  "¿Qué equipos tuvieron más fallas correctivas?",
+  "¿Cuántos rodamientos se consumieron en esta campaña, por designación?",
+  "¿Hubo inspecciones de bombas en estado de alerta o crítico?",
+  "¿Cuáles son las órdenes más antiguas que siguen abiertas?"
+];
+
+/* ---------- Render seguro de Markdown simple ----------
+   Todo el texto se escapa primero; solo después se agregan las pocas etiquetas permitidas. */
+function inline(t){
+  let h = sigmaEsc(t);
+  h = h.replace(/`([^`]+)`/g, "<code>$1</code>");
+  h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  h = h.replace(/(^|[^*])\*([^*\s][^*]*)\*(?!\*)/g, "$1<em>$2</em>");
+  h = h.replace(/\[\[([A-Za-z0-9-]{3,30})\]\]/g, (_, cod) => {
+    const n = nombres[cod];
+    if(!n) return `<span class="cod">${cod}</span>`;
+    return `<a class="eq-link" href="${SIGMA_BASE_URL}equipos/${sigmaRutaEquipo(cod)}">${sigmaEsc(n)} <span class="cod">${cod}</span></a>`;
+  });
+  return h;
+}
+
+function celdas(linea){
+  return linea.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+}
+
+function markdown(texto){
+  const lineas = String(texto || "").replace(/\r/g, "").split("\n");
+  const out = [];
+  let i = 0;
+  while(i < lineas.length){
+    const l = lineas[i];
+    if(/^```/.test(l)){                                   // bloque de código
+      const cod = [];
+      i++;
+      while(i < lineas.length && !/^```/.test(lineas[i])) cod.push(lineas[i++]);
+      i++;
+      out.push(`<pre><code>${sigmaEsc(cod.join("\n"))}</code></pre>`);
+      continue;
+    }
+    if(/^\s*\|.*\|\s*$/.test(l) && i + 1 < lineas.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lineas[i + 1])){   // tabla
+      const cab = celdas(l);
+      i += 2;
+      const filas = [];
+      while(i < lineas.length && /^\s*\|.*\|\s*$/.test(lineas[i])) filas.push(celdas(lineas[i++]));
+      out.push(`<div class="tabla-md"><table><thead><tr>${cab.map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${
+        filas.map(f => `<tr>${cab.map((_, k) => `<td>${inline(f[k] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      continue;
+    }
+    if(/^\s*[-*•]\s+/.test(l)){                           // lista
+      const items = [];
+      while(i < lineas.length && /^\s*[-*•]\s+/.test(lineas[i])) items.push(lineas[i++].replace(/^\s*[-*•]\s+/, ""));
+      out.push(`<ul>${items.map(x => `<li>${inline(x)}</li>`).join("")}</ul>`);
+      continue;
+    }
+    if(/^\s*\d+[.)]\s+/.test(l)){                         // lista numerada
+      const items = [];
+      while(i < lineas.length && /^\s*\d+[.)]\s+/.test(lineas[i])) items.push(lineas[i++].replace(/^\s*\d+[.)]\s+/, ""));
+      out.push(`<ol>${items.map(x => `<li>${inline(x)}</li>`).join("")}</ol>`);
+      continue;
+    }
+    if(/^\s*$/.test(l)){ i++; continue; }
+    const t = l.match(/^#{1,4}\s+(.*)$/);                 // títulos → negrita (sin títulos grandes)
+    if(t){ out.push(`<p><strong>${inline(t[1])}</strong></p>`); i++; continue; }
+    const par = [];                                       // párrafo
+    while(i < lineas.length && !/^\s*$/.test(lineas[i]) && !/^```/.test(lineas[i]) && !/^\s*[-*•]\s+/.test(lineas[i]) && !/^\s*\d+[.)]\s+/.test(lineas[i]) && !/^#{1,4}\s/.test(lineas[i]) && !/^\s*\|.*\|\s*$/.test(lineas[i])) par.push(lineas[i++]);
+    if(!par.length){ par.push(lineas[i++]); }
+    out.push(`<p>${par.map(inline).join("<br>")}</p>`);
+  }
+  return out.join("");
+}
+
+/* ---------- Pantalla ---------- */
+function inicialUsuario(){
+  const s = sigmaUsuarioActual();
+  return sigmaEsc(((s && (s.nombre || s.usuario)) || "?").trim().charAt(0).toUpperCase());
+}
+
+function agregarMensaje(rol, texto, extra){
+  const cont = document.createElement("div");
+  cont.className = "msg " + (rol === "user" ? "usuario" : "asistente") + (extra === "error" ? " error" : "");
+  const avatar = rol === "user"
+    ? `<div class="avatar yo" aria-hidden="true">${inicialUsuario()}</div>`
+    : `<img class="avatar" src="assets/isotipo-v3.svg" alt="" width="30" height="30">`;
+  const cuerpo = rol === "user" ? sigmaEsc(texto) : markdown(texto);
+  cont.innerHTML = `${avatar}<div><div class="burbuja">${cuerpo}</div>${
+    rol === "assistant" && extra !== "error" ? `<div class="msg-acciones"><button type="button" data-copiar>Copiar</button></div>` : ""}</div>`;
+  const bc = cont.querySelector("[data-copiar]");
+  if(bc) bc.addEventListener("click", async () => {
+    try{ await navigator.clipboard.writeText(texto.replace(/\[\[([A-Za-z0-9-]+)\]\]/g, (_, c) => nombres[c] ? `${nombres[c]} (${c})` : c)); sigmaToast("Respuesta copiada"); }
+    catch(e){ sigmaToast("No se pudo copiar."); }
+  });
+  log.appendChild(cont);
+  bajar();
+  return cont;
+}
+
+function bajar(){ log.scrollTop = log.scrollHeight; }
+
+function bienvenida(){
+  log.innerHTML = `
+    <div class="bienvenida">
+      <img src="assets/isotipo-v3.svg" alt="" width="52" height="52">
+      <h2>¿En qué te ayudo hoy?</h2>
+      <p>Hacé una pregunta con tus palabras o probá con una de estas:</p>
+      <div class="sugerencias">${SUGERENCIAS.map(s => `<button type="button" data-sug>${sigmaEsc(s)}</button>`).join("")}</div>
+    </div>`;
+  log.querySelectorAll("[data-sug]").forEach(b => b.addEventListener("click", () => enviar(b.textContent)));
+}
+
+function guardarCharla(){
+  try{ sessionStorage.setItem(CLAVE_CHARLA, JSON.stringify(charla.slice(-40))); }catch(e){}
+}
+
+function restaurarCharla(){
+  try{
+    const g = JSON.parse(sessionStorage.getItem(CLAVE_CHARLA) || "[]");
+    if(Array.isArray(g)) charla = g.filter(m => m && (m.rol === "user" || m.rol === "assistant") && typeof m.texto === "string");
+  }catch(e){ charla = []; }
+}
+
+function pintarCharla(){
+  log.innerHTML = "";
+  if(!charla.length){ bienvenida(); return; }
+  charla.forEach(m => agregarMensaje(m.rol, m.texto));
+}
+
+function pensando(){
+  const d = document.createElement("div");
+  d.className = "msg asistente";
+  d.innerHTML = `<img class="avatar" src="assets/isotipo-v3.svg" alt="" width="30" height="30"><div class="burbuja pensando"><span class="puntos"><i></i><i></i><i></i></span><span id="estado-pensando">Consultando los datos de SIGMA…</span></div>`;
+  log.appendChild(d);
+  bajar();
+  const t = setTimeout(() => { const e = d.querySelector("#estado-pensando"); if(e) e.textContent = "Sigue trabajando, algunas consultas tardan unos segundos…"; }, 9000);
+  return () => { clearTimeout(t); d.remove(); };
+}
+
+async function enviar(texto){
+  texto = String(texto || "").trim();
+  if(!texto || esperando) return;
+  esperando = true;
+  btnEnviar.disabled = true;
+  campo.value = "";
+  ajustarAltura();
+  if(!charla.length) log.innerHTML = "";
+
+  charla.push({rol: "user", texto});
+  const burbujaUsuario = agregarMensaje("user", texto);
+  const quitar = pensando();
+  try{
+    const r = await sigmaApi("asistente", {mensajes: charla.slice(-MAX_ENVIADOS)});
+    quitar();
+    charla.push({rol: "assistant", texto: r.respuesta});
+    agregarMensaje("assistant", r.respuesta);
+    guardarCharla();
+  }catch(err){
+    quitar();
+    // El mensaje fallido no se reenvía en la próxima pregunta.
+    charla.pop();
+    burbujaUsuario.remove();
+    if(!charla.length) log.innerHTML = "";
+    agregarMensaje("assistant", err.message || "No se pudo consultar al asistente.", "error");
+    campo.value = texto;
+    ajustarAltura();
+  }finally{
+    esperando = false;
+    btnEnviar.disabled = false;
+    campo.focus();
+  }
+}
+
+function ajustarAltura(){
+  campo.style.height = "auto";
+  campo.style.height = Math.min(campo.scrollHeight, 160) + "px";
+}
+
+form.addEventListener("submit", ev => { ev.preventDefault(); enviar(campo.value); });
+campo.addEventListener("input", ajustarAltura);
+campo.addEventListener("keydown", ev => {
+  if(ev.key === "Enter" && !ev.shiftKey && !ev.isComposing){ ev.preventDefault(); enviar(campo.value); }
+});
+document.getElementById("btn-nueva").addEventListener("click", () => {
+  if(esperando) return;
+  charla = [];
+  try{ sessionStorage.removeItem(CLAVE_CHARLA); }catch(e){}
+  pintarCharla();
+  campo.focus();
+});
+
+(async function iniciar(){
+  restaurarCharla();
+  pintarCharla();
+  try{
+    (await sigmaFetchTab("Equipos")).forEach(e => { if(e.Codigo_SIGMA) nombres[e.Codigo_SIGMA] = e.Maquina || ""; });
+    if(!esperando) pintarCharla();     // vuelve a dibujar para que los códigos guardados muestren el nombre
+  }catch(e){ /* sin nombres: los códigos se muestran tal cual */ }
+  campo.focus();
+})();
+</script>
+</body>
+</html>

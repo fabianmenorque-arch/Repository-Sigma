@@ -222,3 +222,22 @@ Cantidad a pedir (misma lógica que la planilla): `instalados × (1 + cambios pr
 - Repuestos → pestaña **Consumo**: unidades, cambios, equipos y «cada cuánto se cambia» por repuesto, y el equipo que más consumió (desplegable por equipo). Filtro por campaña; el intervalo usa siempre todo el historial. Exporta a Excel.
 - **Histórico**: en esa pestaña se baja una planilla con las OT completadas y los repuestos de cada equipo, se completa «Cantidad» y se sube. Cargar de nuevo una OT reemplaza sus consumos.
 - Acciones nuevas: `guardar_consumos_orden` (admin, jefe, técnico) e `importar_consumos` (admin, jefe). Code.gs v23.
+
+## Asistente de IA (`asistente.html`)
+
+Chat dentro de SIGMA que responde preguntas con los datos reales del Sheet (órdenes, equipos, mantenimientos, repuestos, consumos, mediciones, inspecciones, observaciones…). Es **de solo lectura**: no crea ni modifica nada.
+
+**Cómo funciona.** El navegador manda la conversación a la acción `asistente` de `Code.gs`. El servidor valida la sesión y el rol, y le da a Claude tres herramientas de consulta (`consultar_tabla`, `agrupar_tabla`, `kpis_mantenimiento`). Claude decide qué consultar; el servidor ejecuta la consulta **con los permisos de quien preguntó** (las mismas pestañas que ese rol puede leer; el operario solo ve sus equipos asignados) y le devuelve los resultados. La clave de la API nunca llega al navegador.
+
+**Activarlo (una sola vez):**
+1. Crear una clave en <https://console.anthropic.com> (cuenta con saldo) .
+2. En Apps Script: Configuración del proyecto → *Propiedades del script* → agregar `ANTHROPIC_API_KEY` = la clave. (Opcional: `ASISTENTE_MODELO` para cambiar de modelo; por defecto `claude-sonnet-5-5`.)
+3. Reemplazar `Code.gs` por el de este repo y, en el editor, ejecutar **`autorizarAsistente`** una vez (acepta el permiso de conexión externa y comprueba la clave; mirar Ver → Registros).
+4. Implementar → Administrar implementaciones → ✏️ → *Nueva versión* (misma URL).
+5. Subir `asistente.html` y `sigma-utils.js` al repositorio.
+
+**Quién lo ve.** Todos los roles (incluido Solo lectura) salvo Operario. Para cambiarlo, editar `PAGINAS_BASE`/`PERMISOS` en `Code.gs`.
+
+**Control de gasto y seguridad.** Tope de 40 preguntas por usuario y hora (`ASISTENTE_LIMITE_HORA`), respuestas de máx. 1600 tokens, hasta 6 rondas de consulta por pregunta. Las instrucciones le indican tratar los textos cargados en las pestañas como datos (no como órdenes). La hoja `Usuarios` no es consultable.
+
+**Costo.** Cada pregunta consume tokens de la API de Anthropic (se factura aparte de Claude.ai). Revisar el uso en la consola.
