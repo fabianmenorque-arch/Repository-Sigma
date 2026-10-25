@@ -222,3 +222,6 @@ Cantidad a pedir (misma lógica que la planilla): `instalados × (1 + cambios pr
 - Repuestos → pestaña **Consumo**: unidades, cambios, equipos y «cada cuánto se cambia» por repuesto, y el equipo que más consumió (desplegable por equipo). Filtro por campaña; el intervalo usa siempre todo el historial. Exporta a Excel.
 - **Histórico**: en esa pestaña se baja una planilla con las OT completadas y los repuestos de cada equipo, se completa «Cantidad» y se sube. Cargar de nuevo una OT reemplaza sus consumos.
 - Acciones nuevas: `guardar_consumos_orden` (admin, jefe, técnico) e `importar_consumos` (admin, jefe). Code.gs v23.
+
+### Repuestos huérfanos
+En Repuestos → «Equipos y repuestos» aparece un aviso cuando hay filas de la pestaña Repuestos cuyo `Codigo_Equipo` no existe en Equipos (una O en vez de 0, un guion distinto, etc.). Muestra el código tal como está en la hoja, qué caracteres raros tiene, el equipo sugerido, y un botón «Corregir» que pasa esas filas al equipo elegido (acción `corregir_codigo_repuestos`, admin y jefe; Code.gs v24).
