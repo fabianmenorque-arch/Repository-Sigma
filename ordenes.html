@@ -24,6 +24,23 @@
   select.select-estado.estado-en-proceso{background:var(--amber-500); color:#fff;}
   select.select-estado.estado-suspendido{background:var(--danger-500); color:#fff;}
   select.select-estado.estado-completada{background:var(--ok-500); color:#fff;}
+
+  .cab{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;}
+  .cab h1{margin:0;}
+  .btn-nueva{padding:.65rem 1.2rem;font-size:.9rem;font-weight:700;}
+  .resumen{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.7rem;margin-bottom:1rem;}
+  .chip-estado{background:linear-gradient(155deg,var(--steel-900),var(--card-end));border:1px solid var(--line);color:var(--steel-200);
+    border-radius:var(--radius);padding:.7rem .9rem;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:.1rem;font-size:.75rem;}
+  .chip-estado b{font-size:1.5rem;line-height:1.1;color:#fff;}
+  .chip-estado.on{border-color:var(--amber-500);box-shadow:0 0 0 1px var(--amber-500) inset;}
+  #tabla-ordenes td{vertical-align:top;}
+  #tabla-ordenes tr.prio-alta td:first-child{box-shadow:3px 0 0 var(--danger-500) inset;}
+  .tarea{font-size:.82rem;color:var(--steel-200);margin-top:.15rem;max-width:420px;}
+  .abierta{font-size:.8rem;white-space:nowrap;}
+  .abierta.vieja{color:var(--danger-500);font-weight:700;}
+  details.fechas summary{cursor:pointer;font-size:.74rem;color:var(--steel-400);}
+  details.fechas .fh{display:flex;gap:.3rem;align-items:center;margin:.3rem 0;font-size:.72rem;color:var(--steel-400);flex-wrap:wrap;}
+  details.fechas .fh span{min-width:2.2rem;}
 </style>
 </head>
 <body>
@@ -31,15 +48,52 @@
 <div id="nav-slot"></div>
 
 <div class="container">
-  <div class="panel-head">
+  <div class="cab">
     <h1>Órdenes de trabajo</h1>
+    <button type="button" class="btn-nueva" data-requiere="crear_orden" onclick="abrirNueva()">+ Nueva orden</button>
   </div>
 
-  <div class="grid-2">
-    <!-- Formulario de alta -->
-    <div class="plate panel" data-requiere="crear_orden">
-      <div class="panel-head"><h2>Nueva orden</h2></div>
-      <form id="form-orden">
+  <div class="resumen" id="resumen">
+    <button type="button" class="chip-estado" data-est="ACTIVAS">Activas<b id="cnt-activas">—</b></button>
+    <button type="button" class="chip-estado" data-est="Pendiente">Pendientes<b id="cnt-pendiente">—</b></button>
+    <button type="button" class="chip-estado" data-est="En Proceso">En proceso<b id="cnt-en-proceso">—</b></button>
+    <button type="button" class="chip-estado" data-est="Suspendido">Suspendidas<b id="cnt-suspendido">—</b></button>
+    <button type="button" class="chip-estado" data-est="Completada">Completadas<b id="cnt-completada">—</b></button>
+  </div>
+
+  <div class="plate panel">
+    <div class="panel-head">
+      <h2 id="lista-titulo">Órdenes activas</h2>
+    </div>
+    <div class="filter-bar">
+      <div class="field">
+        <label>Buscar</label>
+        <input type="text" id="filtro-texto" placeholder="Código, descripción, responsable…">
+      </div>
+      <div class="field">
+        <label>Prioridad</label>
+        <select id="filtro-prioridad"><option value="">Todas</option><option>Alta</option><option>Media</option><option>Baja</option></select>
+      </div>
+      <div class="field">
+        <label>Estado</label>
+        <select id="filtro-estado"><option value="ACTIVAS" selected>Activas (sin completar)</option><option value="">Todas</option><option>Pendiente</option><option>En Proceso</option><option>Suspendido</option><option>Completada</option></select>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="sigma-table" id="tabla-ordenes">
+        <thead>
+          <tr><th>Orden</th><th>Equipo y tarea</th><th>Prioridad</th><th style="min-width:150px;">Estado</th><th>Responsable</th><th>Abierta</th><th>Fechas</th></tr>
+        </thead>
+        <tbody><tr><td colspan="7" class="empty-state">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+<dialog class="sigma-dialog" id="dlg-nueva" style="max-width:560px;overflow:visible;">
+  <h2 style="margin:0 0 .8rem;font-size:1.1rem;">Nueva orden de trabajo</h2>
+  <form id="form-orden">
         <div class="field buscador-wrap">
           <label for="buscar-equipo">Equipo</label>
           <input type="text" id="buscar-equipo" placeholder="Buscar por código, sector o máquina…" autocomplete="off" required>
@@ -76,60 +130,13 @@
           </div>
         </div>
 
-        <p style="font-size:.78rem;color:var(--steel-400);margin:.2rem 0 1rem;">
-          Las fechas y horas de Inicio y Fin se cargan a mano desde la
-          tabla, cuando tengas el dato real — no hace falta cargarlas en
-          el momento en que ocurren.
+        <p style="font-size:.78rem;color:var(--steel-400);margin:.2rem 0 .5rem;">
+          Las fechas de Inicio y Fin se cargan después, desde «Fechas» en la lista, cuando tengas el dato real.
         </p>
 
-        <button type="submit" id="btn-guardar">Crear orden</button>
+        <div class="acciones"><button type="button" class="secondary" onclick="document.getElementById('dlg-nueva').close()">Cancelar</button><button type="submit" id="btn-guardar">Crear orden</button></div>
       </form>
-    </div>
-
-    <!-- Filtros y resumen -->
-    <div class="plate panel">
-      <div class="panel-head"><h2>Resumen</h2></div>
-      <div class="kpi-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0;">
-        <div class="plate kpi-tile"><div class="kpi-label">Pendientes</div><div class="kpi-value" id="cnt-pendiente">—</div></div>
-        <div class="plate kpi-tile"><div class="kpi-label">En proceso</div><div class="kpi-value" id="cnt-en-proceso">—</div></div>
-        <div class="plate kpi-tile"><div class="kpi-label">Suspendidas</div><div class="kpi-value" id="cnt-suspendido">—</div></div>
-        <div class="plate kpi-tile"><div class="kpi-label">Completadas</div><div class="kpi-value" id="cnt-completada">—</div></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="plate panel">
-    <div class="panel-head">
-      <h2>Listado de órdenes</h2>
-    </div>
-    <div class="filter-bar">
-      <div class="field">
-        <label>Buscar</label>
-        <input type="text" id="filtro-texto" placeholder="Código, descripción, responsable…">
-      </div>
-      <div class="field">
-        <label>Prioridad</label>
-        <select id="filtro-prioridad"><option value="">Todas</option><option>Alta</option><option>Media</option><option>Baja</option></select>
-      </div>
-      <div class="field">
-        <label>Estado</label>
-        <select id="filtro-estado"><option value="">Todos</option><option>Pendiente</option><option>En Proceso</option><option>Suspendido</option><option>Completada</option></select>
-      </div>
-    </div>
-    <div class="table-scroll">
-      <table class="sigma-table" id="tabla-ordenes">
-        <thead>
-          <tr>
-            <th>Nro</th><th>Equipo</th><th>Descripción</th><th>Tipo</th>
-            <th>Prioridad</th><th style="min-width:150px;">Estado</th><th>Responsable</th><th>Creada</th><th style="min-width:140px;">Inicio</th><th style="min-width:140px;">Fin</th>
-          </tr>
-        </thead>
-        <tbody><tr><td colspan="10" class="empty-state">Cargando…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
+</dialog>
 
 <dialog class="sigma-dialog" id="dlg-cons" style="max-width:760px;">
   <h2 id="cons-titulo" style="margin:0 0 .3rem;font-size:1.1rem;">Repuestos usados</h2>
@@ -193,7 +200,14 @@ document.addEventListener("click", e => {
   if(!e.target.closest(".buscador-wrap")) cajaSugerencias.style.display = "none";
 });
 
-/* ---------- Alta de orden ---------- */
+/* ---------- Alta de orden (ventana emergente) ---------- */
+function abrirNueva(){
+  document.getElementById("form-orden").reset();
+  codigoEquipoHidden.value = ""; equipoElegidoLbl.textContent = "";
+  document.getElementById("dlg-nueva").showModal();
+  inputBuscar.focus();
+}
+window.abrirNueva = abrirNueva;
 document.getElementById("form-orden").addEventListener("submit", async e => {
   e.preventDefault();
   if(!codigoEquipoHidden.value){
@@ -226,6 +240,7 @@ document.getElementById("form-orden").addEventListener("submit", async e => {
     e.target.reset();
     codigoEquipoHidden.value = "";
     equipoElegidoLbl.textContent = "";
+    document.getElementById("dlg-nueva").close();
   }catch(err){
     sigmaToast("Error al guardar: " + err.message);
   }finally{
@@ -299,7 +314,19 @@ function pintarResumen(){
   document.getElementById("cnt-en-proceso").textContent = conteo["En Proceso"];
   document.getElementById("cnt-suspendido").textContent = conteo.Suspendido;
   document.getElementById("cnt-completada").textContent = conteo.Completada;
+  document.getElementById("cnt-activas").textContent = conteo.Pendiente + conteo["En Proceso"] + conteo.Suspendido;
 }
+function marcarChips(){
+  const v = document.getElementById("filtro-estado").value;
+  document.querySelectorAll(".chip-estado").forEach(b => b.classList.toggle("on", b.dataset.est === v));
+  document.getElementById("lista-titulo").textContent = v === "ACTIVAS" ? "Órdenes activas" : v ? "Órdenes: " + v.toLowerCase() : "Todas las órdenes";
+}
+document.getElementById("resumen").addEventListener("click", ev => {
+  const b = ev.target.closest(".chip-estado"); if(!b) return;
+  const sel = document.getElementById("filtro-estado");
+  sel.value = sel.value === b.dataset.est ? "" : b.dataset.est;
+  aplicarFiltrosYPintar();
+});
 
 const ESTADOS = ["Pendiente","En Proceso","Suspendido","Completada"];
 
@@ -319,40 +346,49 @@ function nombreEquipo(codigo){
   return eq && eq.Maquina ? eq.Maquina : null;
 }
 
+const abiertas = new Set();   // órdenes con «Fechas» desplegado (para no cerrarlo al repintar)
+function diasDesde(iso){ const d = sigmaParseDate(iso); return d ? Math.floor((Date.now() - d.getTime()) / 864e5) : null; }
+
+function celdaFecha(o, campo, etiqueta){
+  const p = partesFechaHora(o[campo]);
+  return `<div class="fh"><span>${etiqueta}</span>
+    <input data-requiere-bloquear="actualizar_orden" type="date" value="${p.fecha}" onchange="guardarFechaHora('${o.Nro_Orden}','${campo}', this.closest('.fh'))" style="margin:0;padding:.2rem .3rem;font-size:.74rem;">
+    <input data-requiere-bloquear="actualizar_orden" type="time" value="${p.hora}" onchange="guardarFechaHora('${o.Nro_Orden}','${campo}', this.closest('.fh'))" style="margin:0;padding:.2rem .3rem;font-size:.74rem;"></div>`;
+}
+
 function pintarTablaOrdenes(lista){
   const tbody = document.querySelector("#tabla-ordenes tbody");
   if(!lista.length){
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-state">Sin órdenes que coincidan con el filtro.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Sin órdenes que coincidan con el filtro.</td></tr>`;
     return;
   }
   tbody.innerHTML = lista.map(o => {
     const nombre = nombreEquipo(o.Codigo_Equipo);
+    const completa = o.Estado === "Completada";
+    const dias = diasDesde(o.Fecha_Creacion);
+    const abierta = completa ? `<span class="abierta">Cerrada ${sigmaEsc(fmtFechaHora(o.Fecha_Cierre_Real).split(",")[0])}</span>`
+      : dias == null ? "—" : `<span class="abierta ${dias >= 7 ? "vieja" : ""}">${dias === 0 ? "hoy" : "hace " + dias + " d"}</span>`;
     return `
-    <tr>
-      <td class="mono">${o.Nro_Orden}<br><a href="informes.html?orden=${o.Nro_Orden}" style="font-size:.7rem;">Ver informe</a>
+    <tr class="${o.Prioridad === "Alta" && !completa ? "prio-alta" : ""}">
+      <td class="mono">${sigmaEsc(o.Nro_Orden)}<br><span style="font-size:.7rem;color:var(--steel-400);">${sigmaEsc(o.Tipo || "")}</span><br>
+        <a href="informes.html?orden=${encodeURIComponent(o.Nro_Orden)}" style="font-size:.7rem;">Ver informe</a>
         <br><a href="#" data-requiere="guardar_consumos_orden" style="font-size:.7rem;" onclick="abrirConsumos('${o.Nro_Orden}');return false;">${textoConsumos(o.Nro_Orden)}</a></td>
       <td class="equipo-celda">
-        <a class="nombre" href="equipos/${sigmaRutaEquipo(o.Codigo_Equipo)}">${nombre || o.Codigo_Equipo}</a>
-        ${nombre ? `<span class="codigo">${o.Codigo_Equipo}</span>` : ""}
+        <a class="nombre" href="equipos/${sigmaRutaEquipo(o.Codigo_Equipo)}">${sigmaEsc(nombre || o.Codigo_Equipo)}</a>
+        ${nombre ? `<span class="codigo">${sigmaEsc(o.Codigo_Equipo)}</span>` : ""}
+        <div class="tarea">${sigmaEsc(o.Descripcion)}</div>
       </td>
-      <td>${o.Descripcion}</td>
-      <td>${o.Tipo}</td>
       <td>${sigmaBadge("prioridad", o.Prioridad)}</td>
       <td>
-        <select data-requiere-bloquear="actualizar_orden" class="select-estado estado-${claseEstado(o.Estado)}" onchange="cambiarEstado('${o.Nro_Orden}', this.value); this.className='select-estado estado-'+this.value.toLowerCase().replace(/\\s+/g,'-');">
+        <select data-requiere-bloquear="actualizar_orden" class="select-estado estado-${claseEstado(o.Estado)}" onchange="cambiarEstado('${o.Nro_Orden}', this.value); this.className='select-estado estado-'+claseEstado(this.value)">
           ${ESTADOS.map(s => `<option value="${s}" ${s===o.Estado?"selected":""}>${s}</option>`).join("")}
         </select>
       </td>
-      <td>${o.Responsable||"—"}</td>
-      <td>${fmtFechaHora(o.Fecha_Creacion)}</td>
-      <td>
-        <input data-requiere-bloquear="actualizar_orden" type="date" value="${partesFechaHora(o.Fecha_Inicio).fecha}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Inicio', this.closest('td'))" style="margin-bottom:.25rem;padding:.25rem .35rem;font-size:.75rem;">
-        <input data-requiere-bloquear="actualizar_orden" type="time" value="${partesFechaHora(o.Fecha_Inicio).hora}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Inicio', this.closest('td'))" style="padding:.25rem .35rem;font-size:.75rem;">
-      </td>
-      <td>
-        <input data-requiere-bloquear="actualizar_orden" type="date" value="${partesFechaHora(o.Fecha_Cierre_Real).fecha}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Cierre_Real', this.closest('td'))" style="margin-bottom:.25rem;padding:.25rem .35rem;font-size:.75rem;">
-        <input data-requiere-bloquear="actualizar_orden" type="time" value="${partesFechaHora(o.Fecha_Cierre_Real).hora}" onchange="guardarFechaHora('${o.Nro_Orden}','Fecha_Cierre_Real', this.closest('td'))" style="padding:.25rem .35rem;font-size:.75rem;">
-      </td>
+      <td>${sigmaEsc(o.Responsable || "—")}</td>
+      <td>${abierta}</td>
+      <td><details class="fechas" ${abiertas.has(o.Nro_Orden) ? "open" : ""} ontoggle="this.open ? abiertas.add('${o.Nro_Orden}') : abiertas.delete('${o.Nro_Orden}')">
+        <summary>${o.Fecha_Inicio ? "Inicio " + sigmaEsc(fmtFechaHora(o.Fecha_Inicio)) : "Cargar fechas"}</summary>
+        ${celdaFecha(o, "Fecha_Inicio", "Inicio")}${celdaFecha(o, "Fecha_Cierre_Real", "Fin")}</details></td>
     </tr>`;
   }).join("");
 }
@@ -365,8 +401,13 @@ function aplicarFiltrosYPintar(){
   const filtradas = ordenes.filter(o =>
     (!texto || `${o.Codigo_Equipo} ${o.Descripcion} ${o.Responsable}`.toLowerCase().includes(texto)) &&
     (!prioridad || o.Prioridad === prioridad) &&
-    (!estado || o.Estado === estado)
+    (!estado || (estado === "ACTIVAS" ? o.Estado !== "Completada" : o.Estado === estado))
   );
+  const rango = {"En Proceso":0, Pendiente:1, Suspendido:2, Completada:3}, prio = {Alta:0, Media:1, Baja:2};
+  filtradas.sort((a, b) => (rango[a.Estado] ?? 9) - (rango[b.Estado] ?? 9)
+    || (a.Estado === "Completada" ? (b.Fecha_Creacion||"").localeCompare(a.Fecha_Creacion||"")
+        : (prio[a.Prioridad] ?? 9) - (prio[b.Prioridad] ?? 9) || (a.Fecha_Creacion||"").localeCompare(b.Fecha_Creacion||"")));
+  marcarChips();
   pintarTablaOrdenes(filtradas);
 }
 
@@ -455,7 +496,7 @@ async function cargarDatos(){
     aplicarFiltrosYPintar();
   }catch(err){
     document.querySelector("#tabla-ordenes tbody").innerHTML =
-      `<tr><td colspan="10" class="empty-state">Error al cargar: ${err.message}</td></tr>`;
+      `<tr><td colspan="7" class="empty-state">Error al cargar: ${err.message}</td></tr>`;
   }
 }
 cargarDatos();
