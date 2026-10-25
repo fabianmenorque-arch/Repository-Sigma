@@ -449,7 +449,7 @@ function sigmaToast(msg){
   setTimeout(() => el.remove(), 3200);
 }
 
-/** Barra de navegación compartida (sidebar). activePage: "dashboard"|"ordenes"|"equipos"|"qr"|"informes"|"alta"|"gestion"|"analisis"|"repuestos"|"novedades"|"bombas"|"usuarios"|"cuenta"|"mis_equipos"|"observaciones"|"campanias"|"inspecciones" */
+/** Barra de navegación compartida (sidebar). activePage: "dashboard"|"ordenes"|"equipos"|"qr"|"informes"|"alta"|"gestion"|"analisis"|"repuestos"|"novedades"|"bombas"|"usuarios"|"cuenta"|"mis_equipos"|"observaciones"|"campanias"|"inspecciones"|"asistente" */
 function sigmaRenderNav(activePage, basePath = ""){
   sigmaSetFavicon(basePath);
 
@@ -481,12 +481,14 @@ function sigmaRenderNav(activePage, basePath = ""){
     observaciones: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4"/></svg>',
     usuarios: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.6a3.3 3.3 0 0 1 0 6.4M18 14.2c2 .7 3.4 2.6 3.4 5.3"/></svg>',
     inspecciones: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 12 8 8.2"/><path d="M12 12l3.4-1.2"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/><path d="M12 3.5V5M20.5 12H19M12 20.5V19M3.5 12H5"/></svg>',
-    campanias: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.2"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M9 15.2l2.2 2.2 4-4.4"/></svg>'
+    campanias: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.2"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M9 15.2l2.2 2.2 4-4.4"/></svg>',
+    asistente: '<svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>'
   };
 
   const links = [
     {id:"mis_equipos", href:`${basePath}mis_equipos.html`, label:"Mis equipos"},
     {id:"dashboard", href:`${basePath}dashboard.html`, label:"Dashboard"},
+    {id:"asistente", href:`${basePath}asistente.html`, label:"Asistente"},
     {id:"novedades", href:`${basePath}novedades.html`, label:"Novedades"},
     {id:"equipos", href:`${basePath}equipos/index.html`, label:"Equipos"},
     {id:"qr", href:`${basePath}equipos/qr_codigos.html`, label:"Códigos QR"},
