@@ -130,10 +130,27 @@
   </div>
 </div>
 
+
+<dialog class="sigma-dialog" id="dlg-cons" style="max-width:760px;">
+  <h2 id="cons-titulo" style="margin:0 0 .3rem;font-size:1.1rem;">Repuestos usados</h2>
+  <p id="cons-sub" style="margin:0 0 .8rem;color:var(--steel-400);font-size:.82rem;"></p>
+  <div style="max-height:50vh;overflow:auto;"><table class="sigma-table" id="cons-tabla"></table></div>
+  <div style="margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
+    <input id="cons-buscar" list="cons-lista" placeholder="Agregar otro repuesto (código SAP, designación o nombre)" style="flex:1;min-width:220px;">
+    <button type="button" class="secondary" onclick="agregarConsumoExtra()">Agregar</button>
+  </div>
+  <datalist id="cons-lista"></datalist>
+  <p style="margin:.6rem 0 0;color:var(--steel-400);font-size:.76rem;">Poné la cantidad que se cambió de cada repuesto; lo que no se usó queda en 0. Podés corregirlo después desde «Repuestos usados» de la orden.</p>
+  <div class="acciones">
+    <button type="button" class="secondary" onclick="document.getElementById('dlg-cons').close()">Ahora no</button>
+    <button type="button" id="cons-guardar" onclick="guardarConsumos()">Guardar</button>
+  </div>
+</dialog>
 <script>
 document.getElementById("nav-slot").innerHTML = sigmaRenderNav("ordenes");
 
 let equipos = [];
+let repuestos = [], consumos = [];
 let ordenes = [];
 
 /* ---------- Buscador dinámico de equipos ---------- */
@@ -229,6 +246,7 @@ async function cambiarEstado(nro, nuevoEstado){
     await sigmaPost("actualizar_orden", {Nro_Orden: nro, Estado: nuevoEstado});
     const extra = nuevoEstado === "Completada" ? " y se registró en el historial de mantenimientos (con las fechas de Inicio/Fin ya cargadas)" : "";
     sigmaToast(`Orden ${nro} → ${nuevoEstado}${extra}`);
+    if(nuevoEstado === "Completada" && sigmaPuede("guardar_consumos_orden")) abrirConsumos(nro, true);
   }catch(err){
     orden.Estado = anterior;
     aplicarFiltrosYPintar();
@@ -311,7 +329,8 @@ function pintarTablaOrdenes(lista){
     const nombre = nombreEquipo(o.Codigo_Equipo);
     return `
     <tr>
-      <td class="mono">${o.Nro_Orden}<br><a href="informes.html?orden=${o.Nro_Orden}" style="font-size:.7rem;">Ver informe</a></td>
+      <td class="mono">${o.Nro_Orden}<br><a href="informes.html?orden=${o.Nro_Orden}" style="font-size:.7rem;">Ver informe</a>
+        <br><a href="#" data-requiere="guardar_consumos_orden" style="font-size:.7rem;" onclick="abrirConsumos('${o.Nro_Orden}');return false;">${textoConsumos(o.Nro_Orden)}</a></td>
       <td class="equipo-celda">
         <a class="nombre" href="equipos/${sigmaRutaEquipo(o.Codigo_Equipo)}">${nombre || o.Codigo_Equipo}</a>
         ${nombre ? `<span class="codigo">${o.Codigo_Equipo}</span>` : ""}
@@ -354,12 +373,82 @@ function aplicarFiltrosYPintar(){
 ["filtro-texto"].forEach(id => document.getElementById(id).addEventListener("input", sigmaDebounce(aplicarFiltrosYPintar, 180)));
 ["filtro-prioridad","filtro-estado"].forEach(id => document.getElementById(id).addEventListener("change", aplicarFiltrosYPintar));
 
+
+/* ---------- Repuestos usados en la orden (ventana al cerrarla) ---------- */
+let consOrden = null, consFilas = [];
+const claveCons = f => [f.Codigo_SAP, f.Designacion, f.Nombre].map(x => String(x || "").trim().toUpperCase()).join("|");
+const consDeOrden = nro => consumos.filter(c => c.Nro_Orden === nro);
+function textoConsumos(nro){
+  const n = consDeOrden(nro).length;
+  return n ? `Repuestos usados (${n})` : "Cargar repuestos usados";
+}
+function abrirConsumos(nro, alCerrar){
+  const o = ordenes.find(x => x.Nro_Orden === nro); if(!o) return;
+  consOrden = nro;
+  const previos = consDeOrden(nro);
+  const filas = [];
+  const agregar = (r, cant) => {
+    const f = {Codigo_SAP: r.Codigo_SAP || r.Codigo_Repuesto || "", Designacion: r.Designacion || "", Nombre: r.Nombre || "", Cantidad: cant};
+    const k = claveCons(f), ya = filas.find(x => claveCons(x) === k);
+    if(ya){ if(cant) ya.Cantidad = cant; } else filas.push(f);
+  };
+  repuestos.filter(r => r.Codigo_Equipo === o.Codigo_Equipo).forEach(r => agregar(r, ""));
+  previos.forEach(p => { const c = Number(String(p.Cantidad).replace(",", ".")) || ""; const f = filas.find(x => claveCons(x) === claveCons(p)); if(f) f.Cantidad = c; else filas.push({Codigo_SAP: p.Codigo_SAP, Designacion: p.Designacion, Nombre: p.Nombre, Cantidad: c}); });
+  consFilas = filas;
+  const nom = nombreEquipo(o.Codigo_Equipo) || o.Codigo_Equipo;
+  document.getElementById("cons-titulo").textContent = `Repuestos usados — ${o.Nro_Orden}`;
+  document.getElementById("cons-sub").textContent = `${nom} · ${o.Descripcion || ""}${alCerrar ? " · La orden quedó completada." : ""}`;
+  const vistos = new Set(), op = [];
+  repuestos.forEach(r => { const f = {Codigo_SAP: r.Codigo_Repuesto, Designacion: r.Designacion, Nombre: r.Nombre}; const k = claveCons(f); if(vistos.has(k)) return; vistos.add(k); op.push(`<option value="${sigmaEsc([f.Codigo_SAP, f.Designacion, f.Nombre].filter(Boolean).join(" · "))}">`); });
+  document.getElementById("cons-lista").innerHTML = op.join("");
+  document.getElementById("cons-buscar").value = "";
+  pintarConsumos();
+  document.getElementById("dlg-cons").showModal();
+}
+function pintarConsumos(){
+  const t = document.getElementById("cons-tabla");
+  if(!consFilas.length){ t.innerHTML = `<tr><td class="empty-state">Este equipo no tiene repuestos cargados. Agregá los usados con el buscador de abajo, o guardá sin repuestos.</td></tr>`; return; }
+  t.innerHTML = `<thead><tr><th>Repuesto</th><th>Código SAP</th><th style="width:110px;">Usados</th></tr></thead><tbody>` +
+    consFilas.map((f, i) => `<tr><td>${sigmaEsc(f.Nombre)}${f.Designacion ? `<br><small>${sigmaEsc(f.Designacion)}</small>` : ""}</td>
+      <td class="mono">${sigmaEsc(f.Codigo_SAP || "S/C")}</td>
+      <td><input type="number" min="0" step="1" inputmode="decimal" value="${f.Cantidad === "" ? "" : sigmaEsc(f.Cantidad)}" placeholder="0" onchange="consFilas[${i}].Cantidad = this.value" style="width:90px;"></td></tr>`).join("") + `</tbody>`;
+}
+function agregarConsumoExtra(){
+  const inp = document.getElementById("cons-buscar"), v = inp.value.trim(); if(!v) return;
+  const cat = repuestos.find(r => [r.Codigo_Repuesto, r.Designacion, r.Nombre].filter(Boolean).join(" · ") === v);
+  const f = cat ? {Codigo_SAP: cat.Codigo_Repuesto || "", Designacion: cat.Designacion || "", Nombre: cat.Nombre || "", Cantidad: 1}
+                : {Codigo_SAP: "", Designacion: "", Nombre: v, Cantidad: 1};
+  const k = claveCons(f), ya = consFilas.find(x => claveCons(x) === k);
+  if(ya) ya.Cantidad = (Number(ya.Cantidad) || 0) + 1; else consFilas.push(f);
+  inp.value = ""; pintarConsumos();
+}
+async function guardarConsumos(){
+  const btn = document.getElementById("cons-guardar");
+  const items = consFilas.filter(f => Number(String(f.Cantidad).replace(",", ".")) > 0);
+  btn.disabled = true; btn.textContent = "Guardando…";
+  try{
+    await sigmaPost("guardar_consumos_orden", {Nro_Orden: consOrden, Items: items});
+    const o = ordenes.find(x => x.Nro_Orden === consOrden);
+    consumos = consumos.filter(c => c.Nro_Orden !== consOrden).concat(items.map(f => ({...f, Nro_Orden: consOrden, Codigo_Equipo: o ? o.Codigo_Equipo : ""})));
+    document.getElementById("dlg-cons").close();
+    aplicarFiltrosYPintar();
+    sigmaToast(items.length ? `Se registraron ${items.length} repuesto(s) en ${consOrden}.` : `${consOrden}: sin repuestos usados.`);
+  }catch(err){
+    sigmaToast("No se pudo guardar: " + err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "Guardar";
+  }
+}
+window.abrirConsumos = abrirConsumos; window.agregarConsumoExtra = agregarConsumoExtra; window.guardarConsumos = guardarConsumos;
+
 /* ---------- Carga inicial ---------- */
 async function cargarDatos(){
   try{
-    [equipos, ordenes] = await Promise.all([
+    [equipos, ordenes, repuestos, consumos] = await Promise.all([
       sigmaFetchTab("Equipos").catch(()=>[]),
-      sigmaFetchTab("Ordenes_de_Trabajo").catch(()=>[])
+      sigmaFetchTab("Ordenes_de_Trabajo").catch(()=>[]),
+      sigmaFetchTab("Repuestos").catch(()=>[]),
+      sigmaFetchTab("Consumos").catch(()=>[])
     ]);
     ordenes.sort((a,b) => (b.Fecha_Creacion||"").localeCompare(a.Fecha_Creacion||""));
     pintarResumen();

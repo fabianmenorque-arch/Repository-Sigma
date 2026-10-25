@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-24-v22-inspeccion-diaria";
+const VERSION_SCRIPT = "2026-10-25-v23-consumos";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -195,6 +195,10 @@ function ejecutarEscritura_(accion, body) {
       return guardarPedidoManual_(body);
     case "eliminar_pedido_manual":
       return eliminarPedidoManual_(body);
+    case "guardar_consumos_orden":
+      return guardarConsumosOrden_(body);
+    case "importar_consumos":
+      return importarConsumos_(body);
     case "registrar_inspeccion":
       return registrarInspeccion_(body);
     case "actualizar_ambiental":
@@ -560,18 +564,18 @@ const ROLES = {
 
 // Pestañas de datos del sistema (la hoja "Usuarios" NO está en ninguna lista: nadie puede leerla desde la web)
 const PESTANAS_OPERATIVAS = ["Equipos", "Mantenimientos", "Ordenes_de_Trabajo", "Imagenes", "Variables",
-  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones", "Campanias", "Inspecciones"];
+  "Mediciones", "Avances_Orden", "Repuestos", "Reparaciones_Programadas", "Paradas", "Observaciones", "Campanias", "Inspecciones", "Consumos"];
 const PESTANAS_TODAS = PESTANAS_OPERATIVAS.concat(["Analisis_Sector", "Objetivos", "Gestion_Tareas", "Precios", "Catalogo_SAP", "SAP_Descartados", "Stock_SAP", "Pedido_Manual"]);
 
 const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "crear_mantenimiento",
   "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
   "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
   "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap", "cambiar_codigos", "guardar_stock_sap", "guardar_pedido_manual", "eliminar_pedido_manual",
-  "registrar_inspeccion", "actualizar_ambiental"];
+  "registrar_inspeccion", "actualizar_ambiental", "guardar_consumos_orden", "importar_consumos"];
 
 // Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
 const ACCIONES_CON_AUTOR = ["crear_observacion", "crear_equipo", "crear_orden", "crear_mantenimiento", "registrar_medicion",
-  "subir_imagen", "crear_tarea_gestion", "crear_avance", "crear_analisis", "crear_parada", "registrar_inspeccion"];
+  "subir_imagen", "crear_tarea_gestion", "crear_avance", "crear_analisis", "crear_parada", "registrar_inspeccion", "guardar_consumos_orden"];
 
 const PAGINAS_BASE = ["dashboard", "novedades", "equipos", "qr", "ordenes", "informes", "repuestos", "bombas", "observaciones", "inspecciones"];
 
@@ -590,7 +594,7 @@ const PERMISOS = {
   },
   tecnico: {
     leer: PESTANAS_OPERATIVAS,
-    escribir: ["crear_orden", "actualizar_orden", "registrar_medicion", "subir_imagen", "crear_avance", "crear_observacion", "registrar_inspeccion"],
+    escribir: ["crear_orden", "actualizar_orden", "registrar_medicion", "subir_imagen", "crear_avance", "crear_observacion", "registrar_inspeccion", "guardar_consumos_orden"],
     paginas: PAGINAS_BASE,
     inicio: "dashboard.html"
   },
@@ -974,6 +978,7 @@ function filasDeHoja_(nombre, ss) {
   } else {
     sheet = nombre === SHEETS.OBSERVACIONES ? hojaObservaciones_()
           : nombre === SHEETS.INSPECCIONES ? hojaInspecciones_()
+          : nombre === "Consumos" ? hojaConsumos_()
           : hoja_(nombre);
   }
   if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) return [];
@@ -2005,6 +2010,168 @@ function eliminarPedidoManual_(body) {
   if (fila === -1) throw new Error("No se encontró ese renglón.");
   sheet.deleteRow(fila);
   return {accion: "eliminar_pedido_manual"};
+}
+
+/* ============================================================
+   CONSUMO DE REPUESTOS POR ORDEN DE TRABAJO
+   ------------------------------------------------------------
+   Pestaña "Consumos" (se crea sola): una fila por repuesto usado en una OT.
+     Id | Nro_Orden | Codigo_Equipo | Codigo_SAP | Designacion | Nombre | Cantidad |
+     Fecha | Campania | Origen | Registrado_Por
+   Origen: "OT" (cargado al cerrar la orden) o "Historico" (carga por planilla).
+   Esta pestaña NO se vacía al cerrar la campaña: el intervalo de reemplazo y la
+   comparación entre campañas necesitan el historial completo.
+   Guardar los consumos de una OT REEMPLAZA los que ya tenía (así se puede corregir).
+   ============================================================ */
+
+const COLUMNAS_CONSUMOS = ["Id", "Nro_Orden", "Codigo_Equipo", "Codigo_SAP", "Designacion", "Nombre", "Cantidad",
+  "Fecha", "Campania", "Origen", "Registrado_Por"];
+const MAX_CONSUMOS = 2000;
+
+function hojaConsumos_() {
+  const s = hojaOCrear_("Consumos", COLUMNAS_CONSUMOS);
+  s.getRange(1, 4, Math.max(s.getMaxRows(), 2), 1).setNumberFormat("@");   // Codigo_SAP como texto (ceros a la izquierda)
+  return s;
+}
+
+function textoCorto_(v, max, etiqueta) {
+  const t = String(v == null ? "" : v).trim();
+  if (t.length > max) throw new Error(etiqueta + " es demasiado largo (máximo " + max + " caracteres).");
+  return t;
+}
+
+/** AAAA-MM-DD de una fecha (texto ISO, AAAA-MM-DD o Date); "" si no se entiende. */
+function diaDe_(v) {
+  if (v == null || v === "") return "";
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return "";
+  const p = n => (n < 10 ? "0" : "") + n;
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+
+function campaniaActivaNombre_() {
+  const a = campaniasDeHoja_().filter(c => c.Estado === "Activa")[0];
+  return a ? (a.Nombre || a.Campania_Id || "") : "";
+}
+
+function validarItemConsumo_(it) {
+  const cantidad = Number(String(it.Cantidad == null ? "" : it.Cantidad).replace(",", "."));
+  if (!isFinite(cantidad) || cantidad < 0 || cantidad > 100000) throw new Error("La cantidad de cada repuesto debe ser un número válido (0 o más).");
+  if (cantidad === 0) return null;
+  const d = {
+    Codigo_SAP: textoCorto_(it.Codigo_SAP, 40, "El código SAP"),
+    Designacion: textoCorto_(it.Designacion, 120, "La designación"),
+    Nombre: textoCorto_(it.Nombre, 120, "El nombre del repuesto"),
+    Cantidad: cantidad
+  };
+  if (!d.Codigo_SAP && !d.Designacion && !d.Nombre) throw new Error("Cada repuesto necesita código SAP, designación o nombre.");
+  return d;
+}
+
+/** Borra todas las filas de "Consumos" cuyo Nro_Orden esté en el conjunto. */
+function borrarConsumosDeOrdenes_(sheet, ordenes) {
+  if (sheet.getLastRow() < 2) return 0;
+  const col = encabezados_(sheet).indexOf("Nro_Orden");
+  const vals = sheet.getRange(2, col + 1, sheet.getLastRow() - 1, 1).getDisplayValues();
+  let borradas = 0;
+  for (let i = vals.length - 1; i >= 0; i--) {
+    if (ordenes.has(String(vals[i][0]).trim())) { sheet.deleteRow(i + 2); borradas++; }
+  }
+  return borradas;
+}
+
+function agregarConsumos_(sheet, filas) {
+  if (!filas.length) return;
+  const h = encabezados_(sheet);
+  const matriz = filas.map(f => h.map(k => (f[k] !== undefined ? seguro_(f[k]) : "")));
+  sheet.getRange(sheet.getLastRow() + 1, 1, matriz.length, h.length).setValues(matriz);
+}
+
+function ordenPorNro_(nro) {
+  const sheet = hoja_(SHEETS.ORDENES);
+  const fila = buscarFila_(sheet, "Nro_Orden", nro);
+  if (fila === -1) return null;
+  const h = encabezados_(sheet), v = sheet.getRange(fila, 1, 1, h.length).getDisplayValues()[0], o = {};
+  h.forEach((k, i) => o[k] = v[i]);
+  return o;
+}
+
+/** body: { Nro_Orden, Items: [{Codigo_SAP, Designacion, Nombre, Cantidad}] }  (Items vacío = la orden no consumió repuestos) */
+function guardarConsumosOrden_(body) {
+  const nro = String(body.Nro_Orden == null ? "" : body.Nro_Orden).trim();
+  if (!nro) throw new Error("Falta el número de orden.");
+  const orden = ordenPorNro_(nro);
+  if (!orden) throw new Error("No se encontró la orden " + nro + ".");
+  const items = Array.isArray(body.Items) ? body.Items : [];
+  if (items.length > 200) throw new Error("Demasiados repuestos en una sola orden.");
+  const validos = items.map(validarItemConsumo_).filter(x => x);
+  const fecha = diaDe_(orden.Fecha_Cierre_Real) || diaDe_(orden.Fecha_Inicio) || diaDe_(new Date().toISOString());
+  const camp = campaniaActivaNombre_(), base = new Date().getTime();
+  const sheet = hojaConsumos_();
+  borrarConsumosDeOrdenes_(sheet, new Set([nro]));
+  agregarConsumos_(sheet, validos.map((d, i) => Object.assign({
+    Id: "CO-" + base + "-" + i, Nro_Orden: nro, Codigo_Equipo: orden.Codigo_Equipo, Fecha: fecha, Campania: camp,
+    Origen: "OT", Registrado_Por: body.Registrado_Por || ""
+  }, d)));
+  return {accion: "guardar_consumos_orden", Nro_Orden: nro, guardados: validos.length};
+}
+
+/**
+ * Carga del histórico por planilla.
+ * body: { Filas: [{Nro_Orden, Codigo_Equipo, Codigo_SAP, Designacion, Nombre, Cantidad, Fecha}] }
+ * Con Nro_Orden de una OT existente se toman de ella el equipo y la fecha (salvo que la fila los traiga) y los consumos
+ * de esa OT se REEMPLAZAN. Sin Nro_Orden hacen falta Codigo_Equipo y Fecha, y no se duplican filas idénticas.
+ */
+function importarConsumos_(body) {
+  const filas = Array.isArray(body.Filas) ? body.Filas : [];
+  if (!filas.length) throw new Error("La planilla no tiene filas con cantidad.");
+  if (filas.length > MAX_CONSUMOS) throw new Error("Máximo " + MAX_CONSUMOS + " filas por carga.");
+  const ordenes = {}, camp = campaniaActivaNombre_(), base = new Date().getTime();
+  const limpias = [], errores = [];
+  filas.forEach((f, i) => {
+    try {
+      const d = validarItemConsumo_(f);
+      if (!d) return;
+      const nro = textoCorto_(f.Nro_Orden, 40, "El número de orden");
+      let equipo = textoCorto_(f.Codigo_Equipo, 40, "El código de equipo"), fecha = diaDe_(f.Fecha);
+      if (nro) {
+        if (!(nro in ordenes)) ordenes[nro] = ordenPorNro_(nro);
+        const o = ordenes[nro];
+        if (!o) throw new Error("la orden " + nro + " no existe");
+        equipo = equipo || o.Codigo_Equipo;
+        fecha = fecha || diaDe_(o.Fecha_Cierre_Real) || diaDe_(o.Fecha_Inicio);
+      }
+      if (!equipo) throw new Error("falta el equipo");
+      if (!fecha) throw new Error("falta la fecha");
+      limpias.push(Object.assign({Nro_Orden: nro, Codigo_Equipo: equipo, Fecha: fecha}, d));
+    } catch (e) {
+      errores.push("Fila " + (i + 1) + ": " + e.message);
+    }
+  });
+  if (errores.length) throw new Error("No se cargó nada. " + errores.slice(0, 8).join(" | ") + (errores.length > 8 ? " | … (" + errores.length + " errores)" : ""));
+  if (!limpias.length) throw new Error("La planilla no tiene filas con cantidad.");
+
+  const sheet = hojaConsumos_();
+  borrarConsumosDeOrdenes_(sheet, new Set(limpias.map(f => f.Nro_Orden).filter(x => x)));
+  const existentes = new Set(filasDeHoja_("Consumos").filter(r => !r.Nro_Orden).map(claveConsumo_));
+  let omitidas = 0;
+  const aAgregar = [];
+  limpias.forEach((f, i) => {
+    if (!f.Nro_Orden) {
+      const k = claveConsumo_(f);
+      if (existentes.has(k)) { omitidas++; return; }
+      existentes.add(k);
+    }
+    aAgregar.push(Object.assign({Id: "CO-" + base + "-h" + i, Campania: camp, Origen: "Historico", Registrado_Por: body.Registrado_Por || ""}, f));
+  });
+  agregarConsumos_(sheet, aAgregar);
+  return {accion: "importar_consumos", cargadas: aAgregar.length, repetidas_omitidas: omitidas};
+}
+
+function claveConsumo_(r) {
+  return [r.Codigo_Equipo, r.Codigo_SAP, r.Designacion, r.Nombre, Number(r.Cantidad), r.Fecha].map(x => String(x == null ? "" : x).trim().toUpperCase()).join("|");
 }
 
 /* ============================================================
