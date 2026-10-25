@@ -34,7 +34,7 @@
 </div>
 <script>
 document.getElementById('nav-slot').innerHTML=sigmaRenderNav('repuestos');
-const S={ajuste:0,sap:{cat:[],des:[],cargado:false,imp:null,q:'',est:'',libres:false,sel:new Set(),res:null},eq:[],rep:[],pre:{},tab:'eq',q:'',sf:'',crit:new Set(['A','B']),shared:false,sel:'',onlyNo:false,lines:[],list:[],manual:[],stock:[],ped:{soloPedir:true,cat:'',form:false,items:[]}};
+const S={cons:[],ots:[],camps:[],con:{camp:'',q:'',abierto:new Set(),imp:null},ajuste:0,sap:{cat:[],des:[],cargado:false,imp:null,q:'',est:'',libres:false,sel:new Set(),res:null},eq:[],rep:[],pre:{},tab:'eq',q:'',sf:'',crit:new Set(['A','B']),shared:false,sel:'',onlyNo:false,lines:[],list:[],manual:[],stock:[],ped:{soloPedir:true,cat:'',form:false,items:[]}};
 const $=id=>document.getElementById(id);
 new MutationObserver(()=>document.querySelectorAll('#view table:not(.sigma-table)').forEach(t=>t.classList.add('sigma-table'))).observe($('view'),{childList:true,subtree:true});
 const norm=s=>String(s||'').trim().toUpperCase().replace(/\s+/g,' ');
@@ -57,15 +57,15 @@ function sugerir(e){
 
 async function load(){
   try{
-    const [eq,rep,pre,man,stk]=await Promise.all([sigmaFetchTab('Equipos'),sigmaFetchTab('Repuestos'),sigmaFetchTab('Precios').catch(()=>[]),sigmaFetchTab('Pedido_Manual').catch(()=>[]),sigmaFetchTab('Stock_SAP').catch(()=>[])]);
-    S.eq=eq;S.rep=rep;S.manual=man;S.stock=stk;pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
+    const [eq,rep,pre,man,stk,cons,ots,camps]=await Promise.all([sigmaFetchTab('Equipos'),sigmaFetchTab('Repuestos'),sigmaFetchTab('Precios').catch(()=>[]),sigmaFetchTab('Pedido_Manual').catch(()=>[]),sigmaFetchTab('Stock_SAP').catch(()=>[]),sigmaFetchTab('Consumos').catch(()=>[]),sigmaFetchTab('Ordenes_de_Trabajo').catch(()=>[]),sigmaFetchTab('Campanias').catch(()=>[])]);
+    S.cons=cons;S.ots=ots;S.camps=camps;S.eq=eq;S.rep=rep;S.manual=man;S.stock=stk;pre.forEach(p=>S.pre[p.Clave_Repuesto]=p);
     render();
   }catch(e){$('view').innerHTML='<p class="warn">No se pudieron leer los datos: '+esc(e.message)+'</p>';}
 }
 function render(){
-  const T=[['eq','Equipos y repuestos'],['pre','Presupuesto'],['ped','Solicitud de pedido'],['sap','Datos de SAP']].filter(([t])=>t==='sap'?sigmaPuede('importar_catalogo_sap'):((t!=='pre'&&t!=='ped')||sigmaPuedeLeer('Precios')));
+  const T=[['eq','Equipos y repuestos'],['pre','Presupuesto'],['ped','Solicitud de pedido'],['con','Consumo'],['sap','Datos de SAP']].filter(([t])=>t==='sap'?sigmaPuede('importar_catalogo_sap'):t==='con'?sigmaPuedeLeer('Consumos'):((t!=='pre'&&t!=='ped')||sigmaPuedeLeer('Precios')));
   $('tabs').innerHTML=T.map(([t,l])=>`<button class="${S.tab===t?'on':''}" onclick="irTab('${t}')">${l}</button>`).join('');
-  if(S.tab==='eq')(S.sel?viewRep:viewEq)();else({pre:viewPre,ped:viewPed,sap:viewSap})[S.tab]();
+  if(S.tab==='eq')(S.sel?viewRep:viewEq)();else({pre:viewPre,ped:viewPed,con:viewCon,sap:viewSap})[S.tab]();
 }
 function irTab(t){S.tab=t;if(t==='eq')S.sel='';render();}
 
@@ -456,6 +456,131 @@ function categoriaDe(r){
  *   a pedir   = previstos + stock mínimo − stock en SAP   (nunca menos que 0)
  * Los repuestos sin código (S/C) no se pueden pedir: salen aparte hasta que se les asigne uno.
  */
+/* ---------------- Consumo de repuestos (lo cargado al cerrar las OT) ---------------- */
+const diasEntre=(a,b)=>Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/864e5);
+const fechaIso=v=>{
+  if(v instanceof Date&&!isNaN(v))return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+  const s=String(v==null?'':v).trim();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+'-'+m[2]+'-'+m[3];
+  m=s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if(m){const y=m[3].length===2?'20'+m[3]:m[3];return y+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');}
+  const d=new Date(s);return s&&!isNaN(d)?fechaIso(d):'';
+};
+function claveCons(r){const c=norm(r.Codigo_SAP),ok=c&&c!=='S/C';return ok?claveSap(c):'S/C|'+norm(r.Designacion)+'|'+norm(r.Nombre);}
+/* Intervalos: siempre con TODO el historial (una campaña sola da pocos cambios por equipo).
+   Unidades, cambios y ranking: solo las filas de la campaña elegida (camp='' = todas). */
+function calcularConsumo(cons,camp,nomEq){
+  const M=new Map();
+  const nuevo=(r,k)=>({k,cod:norm(r.Codigo_SAP)||'S/C',nombre:r.Nombre||'',des:r.Designacion||'',uni:0,cambios:0,eq:new Map()});
+  cons.forEach(r=>{
+    const q=num(r.Cantidad);if(!(q>0))return;
+    const f=fechaIso(r.Fecha),k=claveCons(r);
+    let it=M.get(k);if(!it){it=nuevo(r,k);M.set(k,it);}
+    if(!it.nombre&&r.Nombre)it.nombre=r.Nombre;if(!it.des&&r.Designacion)it.des=r.Designacion;
+    const e=r.Codigo_Equipo||'?';
+    let x=it.eq.get(e);if(!x)it.eq.set(e,x={uni:0,cambios:0,fechas:new Set(),fechasCamp:new Set()});
+    if(f)x.fechas.add(f);
+    if(!camp||r.Campania===camp){x.uni+=q;x.cambios++;it.uni+=q;it.cambios++;if(f)x.fechasCamp.add(f);}
+  });
+  const out=[];
+  M.forEach(it=>{
+    if(!it.uni)return;
+    const gaps=[];let top=null;const det=[];
+    it.eq.forEach((x,e)=>{
+      const fs=[...x.fechas].sort(),g=[];for(let i=1;i<fs.length;i++)g.push(diasEntre(fs[i-1],fs[i]));
+      g.forEach(v=>gaps.push(v));
+      if(!x.uni)return;
+      const d={e,nombre:(nomEq&&nomEq[e])||e,uni:x.uni,cambios:x.cambios,ultimo:fs.length?fs[fs.length-1]:'',interv:g.length?g.reduce((a,b)=>a+b,0)/g.length:null,nInterv:g.length};
+      det.push(d);if(!top||d.uni>top.uni)top=d;
+    });
+    det.sort((a,b)=>b.uni-a.uni);
+    out.push({k:it.k,cod:it.cod,nombre:it.nombre,des:it.des,uni:it.uni,cambios:it.cambios,equipos:det.length,interv:gaps.length?gaps.reduce((a,b)=>a+b,0)/gaps.length:null,nInterv:gaps.length,top,det});
+  });
+  out.sort((a,b)=>b.uni-a.uni||a.nombre.localeCompare(b.nombre));
+  return out;
+}
+const nomEqMap=()=>{const m={};S.eq.forEach(e=>m[e.Codigo_SIGMA]=e.Maquina||e.Codigo_SIGMA);return m;};
+function viewCon(){
+  const C=S.con,camps=[...new Set(S.cons.map(r=>r.Campania).filter(Boolean))];
+  const activa=(S.camps.find(c=>c.Estado==='Activa')||{}).Nombre;
+  if(C.camp===''&&!C.tocado&&activa&&camps.includes(activa))C.camp=activa;
+  $('view').innerHTML=`<p class="hint">Repuestos que se usaron en cada reparación, cargados al completar la orden de trabajo. Sirve para saber cuánto se consume, cada cuánto se cambia y qué equipo gasta más.</p>
+   <div id="ckp"></div>
+   <div class="bar"><select onchange="S.con.camp=this.value;S.con.tocado=true;drawCon()"><option value="">Todas las campañas</option>${camps.map(c=>`<option ${C.camp===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+    <input type="search" placeholder="Buscar repuesto o código" value="${esc(C.q)}" oninput="S.con.q=this.value;drawCon()">
+    <button onclick="exportarConsumo()">Exportar a Excel</button></div>
+   <div id="cbody"></div>
+   <div data-requiere="importar_consumos" id="cimp"></div>`;
+  drawCon();drawImpCons();
+}
+function drawCon(){
+  const C=S.con,q=C.q.toLowerCase(),lista=calcularConsumo(S.cons,C.camp,nomEqMap()).filter(r=>!q||(r.nombre+' '+r.des+' '+r.cod).toLowerCase().includes(q));
+  S.conLista=lista;
+  const uni=lista.reduce((a,r)=>a+r.uni,0),ots=new Set(S.cons.filter(r=>!C.camp||r.Campania===C.camp).map(r=>r.Nro_Orden).filter(Boolean)).size;
+  $('ckp').innerHTML=`<div class="kp"><div><b>${fmt(uni)}</b>unidades consumidas</div><div><b>${lista.length}</b>repuestos distintos</div><div><b>${ots}</b>órdenes con repuestos</div></div>`;
+  if(!lista.length){$('cbody').innerHTML='<p>Todavía no hay consumos cargados'+(C.camp?' en esta campaña':'')+'. Se cargan al completar una orden de trabajo, o con el histórico de abajo.</p>';return;}
+  const iv=r=>r.interv==null?'<small>sin datos</small>':`${fmt(r.interv)} d <small>(${r.nInterv})</small>`;
+  $('cbody').innerHTML=`<table><tr><th>Repuesto</th><th>Código SAP</th><th class="num">Unidades</th><th class="num">Cambios</th><th class="num">Equipos</th><th class="num" title="Días entre cambios consecutivos del mismo repuesto en el mismo equipo (historial completo). Entre paréntesis, cuántos intervalos se midieron.">Cada cuánto se cambia</th><th>Más consumo</th></tr>`+
+   lista.map((r,i)=>{const ab=C.abierto.has(r.k);
+    return `<tr style="cursor:pointer" onclick="verCons(${i})"><td>${ab?'▾':'▸'} ${esc(r.nombre||r.des)}${r.nombre&&r.des?`<br><small>${esc(r.des)}</small>`:''}</td><td>${esc(r.cod)}</td><td class="num">${fmt(r.uni)}</td><td class="num">${r.cambios}</td><td class="num">${r.equipos}</td><td class="num">${iv(r)}</td><td>${r.top?esc(r.top.nombre)+` <small>(${fmt(r.top.uni)})</small>`:''}</td></tr>`+
+    (ab?`<tr><td colspan="7"><table><tr><th>Equipo</th><th class="num">Unidades</th><th class="num">Cambios</th><th>Último cambio</th><th class="num">Cada cuánto</th></tr>${r.det.map(d=>`<tr><td>${esc(d.nombre)}</td><td class="num">${fmt(d.uni)}</td><td class="num">${d.cambios}</td><td>${esc(d.ultimo)}</td><td class="num">${d.interv==null?'<small>sin datos</small>':fmt(d.interv)+' d'}</td></tr>`).join('')}</table></td></tr>`:'');}).join('')+'</table>';
+}
+function verCons(i){const r=S.conLista[i];if(!r)return;S.con.abierto.has(r.k)?S.con.abierto.delete(r.k):S.con.abierto.add(r.k);drawCon();}
+function exportarConsumo(){
+  const L=S.conLista||[];if(!L.length)return sigmaToast('No hay nada para exportar');
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(L.map(r=>({Repuesto:r.nombre,Designacion:r.des,Codigo_SAP:r.cod,Unidades:r.uni,Cambios:r.cambios,Equipos:r.equipos,Intervalo_medio_dias:r.interv==null?'':Math.round(r.interv),Equipo_que_mas_consume:r.top?r.top.nombre:'',Unidades_de_ese_equipo:r.top?r.top.uni:''}))),'Por repuesto');
+  const d=[];L.forEach(r=>r.det.forEach(x=>d.push({Repuesto:r.nombre,Designacion:r.des,Codigo_SAP:r.cod,Equipo:x.nombre,Codigo_Equipo:x.e,Unidades:x.uni,Cambios:x.cambios,Ultimo_cambio:x.ultimo,Intervalo_medio_dias:x.interv==null?'':Math.round(x.interv)})));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(d),'Por equipo');
+  XLSX.writeFile(wb,'Consumo_de_repuestos'+(S.con.camp?'_'+S.con.camp.replace(/\W+/g,'_'):'')+'.xlsx');
+}
+
+/* Histórico: planilla con las OT completadas y los repuestos instalados de cada equipo; se completa la cantidad usada y se sube. */
+function drawImpCons(){
+  const box=$('cimp');if(!box)return;const I=S.con.imp;
+  const hechas=S.ots.filter(o=>o.Estado==='Completada').length;
+  box.innerHTML=`<details ${S.con.impAbierto?'open':''} ontoggle="S.con.impAbierto=this.open"><summary>Cargar el histórico de repuestos usados</summary>
+   <p><small>1) Bajá la planilla: trae cada orden completada (${hechas}) con los repuestos instalados en su equipo. 2) Completá «Cantidad» donde se usó el repuesto (dejá vacío lo que no se usó; agregá filas si hace falta). 3) Subila acá. Si cargás de nuevo una orden, reemplaza lo que tenía.</small></p>
+   <div class="bar"><button onclick="bajarPlanillaCons()">1) Descargar planilla</button>
+    <label class="b" style="padding:.5rem .9rem;cursor:pointer">3) Subir planilla completada<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="leerPlanillaCons(this.files[0]);this.value=''"></label></div>
+   <div id="cimpres">${I?`<p><b>${I.filas.length}</b> filas con cantidad (${fmt(I.filas.reduce((a,f)=>a+num(f.Cantidad),0))} unidades, ${new Set(I.filas.map(f=>f.Nro_Orden).filter(Boolean)).size} órdenes).${I.sinCant?` <small>${I.sinCant} filas sin cantidad se ignoran.</small>`:''}</p><div class="bar"><button id="btnCons" onclick="cargarHistoricoCons()">Cargar ${I.filas.length} filas</button></div>`:''}</div></details>`;
+}
+function bajarPlanillaCons(){
+  const nom=nomEqMap(),filas=[];
+  S.ots.filter(o=>o.Estado==='Completada').sort((a,b)=>String(a.Nro_Orden).localeCompare(String(b.Nro_Orden))).forEach(o=>{
+    const f=fechaIso(o.Fecha_Cierre_Real)||fechaIso(o.Fecha_Inicio),rs=S.rep.filter(r=>r.Codigo_Equipo===o.Codigo_Equipo);
+    const base={Nro_Orden:o.Nro_Orden,Codigo_Equipo:o.Codigo_Equipo,Equipo:nom[o.Codigo_Equipo]||'',Tarea:o.Descripcion||'',Fecha:f};
+    if(!rs.length)filas.push({...base,Codigo_SAP:'',Designacion:'',Nombre:'',Cantidad:''});
+    rs.forEach(r=>filas.push({...base,Codigo_SAP:r.Codigo_Repuesto||'',Designacion:r.Designacion||'',Nombre:r.Nombre||'',Instalados:r['Cant.']||'',Cantidad:''}));
+  });
+  if(!filas.length)return sigmaToast('No hay órdenes completadas para armar la planilla.');
+  const wb=XLSX.utils.book_new(),ws=XLSX.utils.json_to_sheet(filas,{header:['Nro_Orden','Codigo_Equipo','Equipo','Tarea','Fecha','Codigo_SAP','Designacion','Nombre','Instalados','Cantidad']});
+  ws['!cols']=[{wch:18},{wch:14},{wch:28},{wch:34},{wch:11},{wch:12},{wch:18},{wch:28},{wch:10},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws,'Consumos');XLSX.writeFile(wb,'Planilla_consumos_repuestos.xlsx');
+}
+function leerPlanillaCons(file){
+  if(!file)return;
+  const rd=new FileReader();
+  rd.onload=e=>{try{
+    const wb=XLSX.read(e.target.result,{type:'array',cellDates:true}),m=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+    const get=(r,n)=>{const k=Object.keys(r).find(x=>norm(x).replace(/[ .]/g,'_')===n.toUpperCase());return k?r[k]:'';};
+    let sinCant=0;const filas=[];
+    m.forEach(r=>{const q=num(get(r,'Cantidad'));if(!(q>0)){sinCant++;return;}
+      filas.push({Nro_Orden:String(get(r,'Nro_Orden')).trim(),Codigo_Equipo:String(get(r,'Codigo_Equipo')).trim(),Codigo_SAP:String(get(r,'Codigo_SAP')).trim(),Designacion:String(get(r,'Designacion')).trim(),Nombre:String(get(r,'Nombre')).trim(),Cantidad:q,Fecha:fechaIso(get(r,'Fecha'))});});
+    if(!filas.length){S.con.imp=null;drawImpCons();return sigmaToast('La planilla no tiene filas con «Cantidad». ¿Es la que bajaste de acá?');}
+    S.con.imp={filas,sinCant};S.con.impAbierto=true;drawImpCons();
+  }catch(err){sigmaToast('No se pudo leer el archivo: '+err.message);}};
+  rd.readAsArrayBuffer(file);
+}
+async function cargarHistoricoCons(){
+  const I=S.con.imp;if(!I)return;const b=$('btnCons');b.disabled=true;b.textContent='Cargando…';
+  try{
+    const r=await sigmaApi('importar_consumos',{Filas:I.filas});
+    S.cons=await sigmaFetchTab('Consumos').catch(()=>S.cons);S.con.imp=null;
+    sigmaToast(`Se cargaron ${r.cargadas} filas${r.repetidas_omitidas?` (${r.repetidas_omitidas} repetidas omitidas)`:''}.`);viewCon();
+  }catch(err){sigmaToast(err.message);b.disabled=false;b.textContent='Cargar '+I.filas.length+' filas';}
+}
+
 function calcularPedido(rep,eq,pre,stockMap,descMap,crit){
   const cr={},sc={},nom={};
   eq.forEach(e=>{cr[e.Codigo_SIGMA]=e.Criticidad||'?';sc[e.Codigo_SIGMA]=e.Sector||'?';nom[e.Codigo_SIGMA]=e.Maquina||e.Codigo_SIGMA;});
