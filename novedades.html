@@ -55,6 +55,21 @@
   .timeline-sub{font-size:.78rem; color:var(--steel-400); margin-top:.1rem;}
   .timeline-detalle{font-size:.78rem; color:var(--steel-200); margin-top:.3rem;}
   .timeline-detalle strong{color:var(--steel-400); font-weight:600;}
+  .badge-resuelta{color:#5cf0bd;background:rgba(46,230,166,.16);}
+  .tl-cab{display:flex;align-items:center;gap:.6rem;margin:0 0 .6rem;}
+  .tl-dia{font-size:.95rem;font-weight:800;color:var(--steel-200);margin:1.4rem 0 .6rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);}
+  .tl-dia::first-letter{text-transform:uppercase;}
+  .tl-dia:first-child{margin-top:0;}
+  .tl-turno{font-size:.7rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:.2rem .65rem;border-radius:999px;}
+  .tl-turno small{font-weight:600;letter-spacing:0;text-transform:none;opacity:.85;margin-left:.3rem;}
+  .tl-turno.t1{color:#ffd37a;background:rgba(255,168,0,.14);}
+  .tl-turno.t2{color:#9fc4ff;background:rgba(59,130,246,.16);}
+  .tl-turno.t3{color:#c9b8ff;background:rgba(108,93,211,.22);}
+  .tl-cuenta{font-size:.72rem;color:var(--steel-400);}
+  .tl-grupo{margin-bottom:.4rem;}
+  .timeline-titulo{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;}
+  .timeline-hora small{display:block;font-size:.65rem;color:var(--steel-400);}
+  .tl-grupo .timeline-item:last-child .timeline-marker::before{display:none;}
   .timeline-avances{margin-top:.5rem; padding-left:.8rem; border-left:2px solid var(--line); display:flex; flex-direction:column; gap:.35rem;}
   .timeline-avance-item{font-size:.74rem; color:var(--steel-400);}
   .timeline-avance-fecha{font-family:var(--font-mono); color:var(--steel-600); margin-right:.4rem;}
@@ -102,6 +117,18 @@ let equiposPorCodigo = {};
 function fmtFechaCorta(d){
   return d.toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit"}) + " " + d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
 }
+
+/* Turnos: 1° 06:00–14:00, 2° 14:00–22:00, 3° 22:00–06:00 (el 3° pertenece a la jornada del día en que empieza). */
+const TURNOS = {1:{n:"1er turno", r:"06:00 a 14:00"}, 2:{n:"2do turno", r:"14:00 a 22:00"}, 3:{n:"3er turno", r:"22:00 a 06:00"}};
+function turnoDe(d){
+  const h = d.getHours();
+  const turno = h >= 6 && h < 14 ? 1 : h >= 14 && h < 22 ? 2 : 3;
+  const j = new Date(d.getFullYear(), d.getMonth(), d.getDate() - (h < 6 ? 1 : 0));
+  const pad = n => String(n).padStart(2, "0");
+  return {turno, dia: `${j.getFullYear()}-${pad(j.getMonth()+1)}-${pad(j.getDate())}`, fechaDia: j};
+}
+function fmtHora(d){ return d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"}); }
+const badgeEstado = e => e ? sigmaBadge("estado", e) : "";
 
 function nombreEquipo(cod){
   const eq = equiposPorCodigo[cod];
@@ -172,16 +199,38 @@ function renderTimeline(){
     return;
   }
 
-  cont.innerHTML = visibles.map((e,i) => `
+  // Agrupa por jornada (día) y turno, de lo más nuevo a lo más viejo.
+  const grupos = [];
+  visibles.forEach((e, i) => {
+    const t = turnoDe(e.fecha);
+    let g = grupos[grupos.length - 1];
+    if(!g || g.dia !== t.dia || g.turno !== t.turno){ g = {dia: t.dia, fechaDia: t.fechaDia, turno: t.turno, items: []}; grupos.push(g); }
+    g.items.push({e, i});
+  });
+
+  let diaActual = "";
+  cont.innerHTML = grupos.map(g => {
+    let cab = "";
+    if(g.dia !== diaActual){
+      diaActual = g.dia;
+      cab = `<div class="tl-dia">${g.fechaDia.toLocaleDateString("es-AR",{weekday:"long", day:"numeric", month:"long"})}</div>`;
+    }
+    return cab + `<div class="tl-grupo">
+      <div class="tl-cab"><span class="tl-turno t${g.turno}">${TURNOS[g.turno].n}<small>${TURNOS[g.turno].r}</small></span><span class="tl-cuenta">${g.items.length} evento${g.items.length === 1 ? "" : "s"}</span></div>
+      ${g.items.map(({e, i}) => {
+        const otroDia = e.fecha.getFullYear() + "-" + e.fecha.getMonth() + "-" + e.fecha.getDate() !== g.fechaDia.getFullYear() + "-" + g.fechaDia.getMonth() + "-" + g.fechaDia.getDate();
+        return `
     <div class="timeline-item ${i===0 ? "reciente" : ""}">
-      <div class="timeline-fecha">${fmtFechaCorta(e.fecha)}</div>
+      <div class="timeline-fecha timeline-hora">${fmtHora(e.fecha)}${otroDia ? `<small>${e.fecha.toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit"})}</small>` : ""}</div>
       <div class="timeline-marker"><div class="timeline-dot" style="${i===0?"":"background:"+COLOR_TIPO[e.tipo]+";border-color:var(--steel-900);"}"></div></div>
       <div class="timeline-content">
-        <div class="timeline-titulo">${e.titulo}</div>
+        <div class="timeline-titulo">${e.titulo}${badgeEstado(e.estado)}</div>
         <div class="timeline-sub">${e.sub}</div>
         ${e.extra || ""}
       </div>
-    </div>`).join("");
+    </div>`; }).join("")}
+    </div>`;
+  }).join("");
 }
 
 document.querySelectorAll("#filtroTipos button").forEach(btn=>{
@@ -224,7 +273,8 @@ async function cargarNovedades(){
         eventos.push({
           tipo:"orden", fecha:fCreacion,
           titulo:`Orden ${o.Nro_Orden || ""} — ${nombreEquipo(o.Codigo_Equipo)}`,
-          sub:`Creada · ${o.Descripcion || "sin descripción de la tarea"} · ${sigmaBadge("estado", o.Estado)}`
+          sub:`Creada · ${o.Descripcion || "sin descripción de la tarea"}`,
+          estado: o.Estado
         });
       }
       if(o.Estado === "Completada"){
@@ -244,6 +294,7 @@ async function cargarNovedades(){
             tipo:"orden", fecha:fCierre,
             titulo:`Orden ${o.Nro_Orden || ""} — ${nombreEquipo(o.Codigo_Equipo)}`,
             sub:`Completada · ${o.Descripcion || "sin descripción de la tarea"}`,
+            estado: o.Estado,
             extra
           });
         }
@@ -267,7 +318,8 @@ async function cargarNovedades(){
         eventos.push({
           tipo:"tarea", fecha:fCreacion,
           titulo:`Tarea ${t.Nro_Tarea || ""} — ${t.Codigo_Equipo ? nombreEquipo(t.Codigo_Equipo) : "Gestión administrativa"}`,
-          sub:`Creada · ${t.Descripcion || "sin descripción de la tarea"}`
+          sub:`Creada · ${t.Descripcion || "sin descripción de la tarea"}`,
+          estado: t.Estado
         });
       }
       if(t.Estado === "Resuelta"){
@@ -276,7 +328,8 @@ async function cargarNovedades(){
           eventos.push({
             tipo:"tarea", fecha:fRes,
             titulo:`Tarea ${t.Nro_Tarea || ""} — ${t.Codigo_Equipo ? nombreEquipo(t.Codigo_Equipo) : "Gestión administrativa"}`,
-            sub:`Resuelta · ${t.Descripcion || "sin descripción de la tarea"}`
+            sub:`Resuelta · ${t.Descripcion || "sin descripción de la tarea"}`,
+            estado: t.Estado
           });
         }
       }
@@ -300,6 +353,7 @@ async function cargarNovedades(){
         tipo:"avance", fecha:f,
         titulo:`Avance${a.Nro_Orden ? " " + a.Nro_Orden : ""} — ${equipoTitulo}`,
         sub: subPartes.join(" · "),
+        estado: ordenRel ? ordenRel.Estado : "",
         extra: detalle
       });
     });
