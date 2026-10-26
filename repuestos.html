@@ -84,8 +84,9 @@ function viewEq(){
       <select id="n_Criticidad">${CR.map(c=>`<option>${c}</option>`).join('')}</select></div>
       <details><summary>Más datos (opcional)</summary><div class="bar">${['Ubicacion','Modelo','Fabricante','Año'].map(k=>`<input id="n_${k}" placeholder="${ph[k]}">`).join('')}</div></details>
       <button onclick="addEq()">Guardar equipo</button></div>
+    <div id="huerf"></div>
     <div class="sc" id="tbl"></div>`;
-  drawEq();
+  drawHuerf();drawEq();
 }
 function drawEq(){
   const q=S.q.toLowerCase(),cnt={};S.rep.forEach(r=>cnt[r.Codigo_Equipo]=(cnt[r.Codigo_Equipo]||0)+1);
@@ -579,6 +580,48 @@ async function cargarHistoricoCons(){
     S.cons=await sigmaFetchTab('Consumos').catch(()=>S.cons);S.con.imp=null;
     sigmaToast(`Se cargaron ${r.cargadas} filas${r.repetidas_omitidas?` (${r.repetidas_omitidas} repetidas omitidas)`:''}.`);viewCon();
   }catch(err){sigmaToast(err.message);b.disabled=false;b.textContent='Cargar '+I.filas.length+' filas';}
+}
+
+/* ---------------- Repuestos huérfanos (código de equipo que no existe en SIGMA) ---------------- */
+const claveCodEq=s=>String(s||'').toUpperCase().replace(/[‐-―−]/g,'-').replace(/[^A-Z0-9-]/g,'').replace(/O/g,'0').replace(/[IL]/g,'1');
+function lev(a,b){const d=[];for(let i=0;i<=a.length;i++){d[i]=[i];}for(let j=1;j<=b.length;j++)d[0][j]=j;
+  for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[a.length][b.length];}
+function rarezas(s){
+  const r=[];[...String(s)].forEach(ch=>{if(!/[A-Za-z0-9-]/.test(ch))r.push(`«${ch.trim()?ch:'espacio raro'}» (U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4,'0')})`);});
+  if(/[a-z]/.test(s))r.push('tiene minúsculas');
+  return [...new Set(r)];
+}
+function calcularHuerfanos(rep,eq){
+  const ok=new Set(eq.map(e=>e.Codigo_SIGMA)),porClave=new Map();
+  eq.forEach(e=>{const k=claveCodEq(e.Codigo_SIGMA);if(!porClave.has(k))porClave.set(k,e.Codigo_SIGMA);});
+  const g=new Map();
+  rep.forEach(r=>{const c=r.Codigo_Equipo||'';if(ok.has(c))return;g.set(c,(g.get(c)||0)+1);});
+  return [...g.entries()].map(([c,n])=>{
+    const k=claveCodEq(c);let sug=porClave.get(k)||'',como=sug?'igual salvo caracteres parecidos':'';
+    if(!sug&&k){let best=null,bd=3;porClave.forEach((v,kk)=>{const d=lev(k,kk);if(d<bd){bd=d;best=v;}});if(best){sug=best;como='parecido';}}
+    return{cod:c,n,sug,como,rar:rarezas(c)};
+  }).sort((a,b)=>b.n-a.n);
+}
+function drawHuerf(){
+  const box=$('huerf');if(!box)return;const H=calcularHuerfanos(S.rep,S.eq);S.huerf=H;
+  if(!H.length){box.innerHTML='';return;}
+  const tot=H.reduce((a,h)=>a+h.n,0),opts=sel=>'<option value="">— elegí el equipo —</option>'+S.eq.map(e=>`<option value="${esc(e.Codigo_SIGMA)}" ${e.Codigo_SIGMA===sel?'selected':''}>${esc(e.Codigo_SIGMA)} — ${esc(e.Maquina||'')}</option>`).join('');
+  box.innerHTML=`<div class="plate" style="padding:1rem;margin-bottom:1rem"><b class="warn">${tot} repuestos no se ven en ningún equipo</b>
+   <p><small>Su código de equipo no coincide con ninguno de SIGMA (una letra O en vez de 0, un guion distinto, un equipo que no existe…). Elegí a qué equipo corresponden y corregilo.</small></p>
+   <table><tr><th>Código en la hoja</th><th class="num">Filas</th><th>Qué pasa</th><th>Corresponde a</th><th></th></tr>`+
+   H.map((h,i)=>`<tr><td class="mono">${h.cod?esc(h.cod):'<small>(vacío)</small>'}</td><td class="num">${h.n}</td>
+    <td><small>${[h.como,...h.rar].filter(Boolean).map(esc).join(' · ')||'no se parece a ningún equipo'}</small></td>
+    <td><select id="hq${i}">${opts(h.sug)}</select></td>
+    <td><button class="b" data-requiere="corregir_codigo_repuestos" onclick="corregirHuerf(${i})">Corregir</button></td></tr>`).join('')+'</table></div>';
+}
+async function corregirHuerf(i){
+  const h=S.huerf[i],hacia=$('hq'+i).value;if(!hacia)return sigmaToast('Elegí el equipo');
+  if(!confirm(`Pasar ${h.n} repuestos de «${h.cod||'(vacío)'}» a ${hacia}?`))return;
+  try{
+    const r=await sigmaApi('corregir_codigo_repuestos',{Desde:h.cod,Hacia:hacia});
+    S.rep.forEach(x=>{if((x.Codigo_Equipo||'')===h.cod)x.Codigo_Equipo=hacia;});
+    sigmaToast(`${r.actualizadas} repuestos corregidos.`);drawHuerf();
+  }catch(e){sigmaToast(e.message);}
 }
 
 function calcularPedido(rep,eq,pre,stockMap,descMap,crit){

@@ -36,7 +36,7 @@
 
 // Cambiá este texto cada vez que edites el script — sirve para confirmar
 // desde el navegador (abriendo la URL /exec) qué versión quedó publicada.
-const VERSION_SCRIPT = "2026-10-25-v23-consumos";
+const VERSION_SCRIPT = "2026-10-25-v24-repuestos-huerfanos";
 
 // Nombre exacto de cada pestaña en el Sheet
 const SHEETS = {
@@ -195,6 +195,8 @@ function ejecutarEscritura_(accion, body) {
       return guardarPedidoManual_(body);
     case "eliminar_pedido_manual":
       return eliminarPedidoManual_(body);
+    case "corregir_codigo_repuestos":
+      return corregirCodigoRepuestos_(body);
     case "guardar_consumos_orden":
       return guardarConsumosOrden_(body);
     case "importar_consumos":
@@ -508,6 +510,30 @@ function eliminarRepuesto_(body) {
   return {accion: "eliminar_repuesto", Codigo_Equipo: body.Codigo_Equipo};
 }
 
+/**
+ * Repuestos "huérfanos": filas cuyo Codigo_Equipo no coincide con ningún equipo (por una letra O en vez de 0, un guion
+ * distinto, etc.). Pasa todas las filas de Repuestos con Codigo_Equipo = Desde a Hacia.
+ * body: { Desde, Hacia }. Hacia tiene que existir en Equipos y Desde NO puede ser un equipo válido.
+ */
+function corregirCodigoRepuestos_(body) {
+  const desde = String(body.Desde == null ? "" : body.Desde).trim();
+  const hacia = String(body.Hacia == null ? "" : body.Hacia).trim();
+  if (!hacia) throw new Error("Elegí el equipo al que corresponden esos repuestos.");
+  const codigos = filasDeHoja_(SHEETS.EQUIPOS).map(e => e.Codigo_SIGMA);
+  if (codigos.indexOf(hacia) === -1) throw new Error("El equipo " + hacia + " no existe.");
+  if (codigos.indexOf(desde) !== -1) throw new Error("El código " + desde + " es de un equipo válido; no se mueven sus repuestos.");
+  const sheet = hoja_(SHEETS.REPUESTOS);
+  const col = encabezados_(sheet).map(x => String(x).trim()).indexOf("Codigo_Equipo");
+  if (col === -1) throw new Error("Repuestos no tiene la columna Codigo_Equipo.");
+  if (sheet.getLastRow() < 2) return {accion: "corregir_codigo_repuestos", actualizadas: 0};
+  const vals = sheet.getRange(2, col + 1, sheet.getLastRow() - 1, 1).getDisplayValues();
+  let n = 0;
+  vals.forEach((v, i) => {
+    if (String(v[0]).trim() === desde) { sheet.getRange(i + 2, col + 1).setValue(hacia); n++; }
+  });
+  return {accion: "corregir_codigo_repuestos", actualizadas: n};
+}
+
 /** Costo y plazo por repuesto. Upsert por Clave_Repuesto (la pestaña se crea sola). */
 function guardarPrecio_(body) {
   const sheet = hojaOCrear_(SHEETS.PRECIOS,
@@ -571,7 +597,7 @@ const ACCIONES_ESCRITURA = ["crear_equipo", "crear_orden", "actualizar_orden", "
   "registrar_medicion", "subir_imagen", "crear_tarea_gestion", "actualizar_tarea_gestion", "crear_avance",
   "crear_analisis", "crear_parada", "guardar_objetivo", "actualizar_criticidad", "guardar_repuesto",
   "eliminar_repuesto", "guardar_precio", "crear_observacion", "importar_catalogo_sap", "aplicar_precios_sap", "nombres_sap", "cambiar_codigos", "guardar_stock_sap", "guardar_pedido_manual", "eliminar_pedido_manual",
-  "registrar_inspeccion", "actualizar_ambiental", "guardar_consumos_orden", "importar_consumos"];
+  "registrar_inspeccion", "actualizar_ambiental", "guardar_consumos_orden", "importar_consumos", "corregir_codigo_repuestos"];
 
 // Acciones que dejan registrado quién cargó el dato (si la pestaña tiene una columna "Registrado_Por")
 const ACCIONES_CON_AUTOR = ["crear_observacion", "crear_equipo", "crear_orden", "crear_mantenimiento", "registrar_medicion",
