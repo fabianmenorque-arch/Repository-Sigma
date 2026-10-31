@@ -449,14 +449,16 @@ function sigmaToast(msg){
   setTimeout(() => el.remove(), 3200);
 }
 
-/** Barra de navegación compartida (sidebar). activePage: "dashboard"|"ordenes"|"equipos"|"qr"|"informes"|"alta"|"gestion"|"analisis"|"repuestos"|"novedades"|"bombas"|"usuarios"|"cuenta"|"mis_equipos"|"observaciones"|"campanias"|"inspecciones" */
+/** Barra de navegación compartida (sidebar). activePage: "dashboard"|"ordenes"|"equipos"|"qr"|"informes"|"alta"|"gestion"|"analisis"|"repuestos"|"novedades"|"bombas"|"calculo_bombas"|"usuarios"|"cuenta"|"mis_equipos"|"observaciones"|"campanias"|"inspecciones" */
 function sigmaRenderNav(activePage, basePath = ""){
   sigmaSetFavicon(basePath);
 
   // Guardia de página: si el rol no tiene acceso a esta pantalla, vuelve al Dashboard.
   const sesion = sigmaSesion();
   const paginasLibres = ["cuenta"];
-  if(sesion && !paginasLibres.includes(activePage) && !sigmaTienePagina(activePage)){
+  // "calculo_bombas" comparte el permiso de la pantalla "bombas" (no requiere cambios en Code.gs).
+  const permisoPagina = activePage === "calculo_bombas" ? "bombas" : activePage;
+  if(sesion && !paginasLibres.includes(activePage) && !sigmaTienePagina(permisoPagina)){
     // Un operario que abre la ficha de un equipo (p. ej. escaneando su QR) va a "Mis equipos" con ese equipo.
     if(sesion.rol === "operario" && activePage === "equipos" && typeof CODIGO_EQUIPO !== "undefined"){
       location.replace(`${SIGMA_BASE_URL}mis_equipos.html?equipo=${encodeURIComponent(CODIGO_EQUIPO)}`);
@@ -477,6 +479,7 @@ function sigmaRenderNav(activePage, basePath = ""){
     gestion: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.3"/><path d="M12 3v2.4M12 18.6V21M21 12h-2.4M5.4 12H3M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7M18.4 18.4l-1.7-1.7M7.3 7.3 5.6 5.6"/></svg>',
     novedades: '<svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
     bombas: '<svg viewBox="0 0 24 24"><path d="M12 3c3 4 6 7.2 6 10.5a6 6 0 1 1-12 0C6 10.2 9 7 12 3z"/></svg>',
+    calculo_bombas: '<svg viewBox="0 0 24 24"><path d="M4 4v16h16"/><path d="M7 7.5c5 0 8.5 2 11 7.5"/><path d="M7 16c4-.3 8-2 11-8"/></svg>',
     mis_equipos: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     observaciones: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4"/></svg>',
     usuarios: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.6a3.3 3.3 0 0 1 0 6.4M18 14.2c2 .7 3.4 2.6 3.4 5.3"/></svg>',
@@ -498,10 +501,11 @@ function sigmaRenderNav(activePage, basePath = ""){
     {id:"campanias", href:`${basePath}campanias.html`, label:"Campañas"},
     {id:"repuestos", href:`${basePath}repuestos.html`, label:"Repuestos"},
     {id:"bombas", href:`${basePath}simulador_bombas.html`, label:"Simulador de bombas"},
+    {id:"calculo_bombas", perm:"bombas", href:`${basePath}calculo_bombas.html`, label:"Cálculo de bombas"},
     {id:"alta", href:`${basePath}alta_nuevo_equipo.html`, label:"Alta de equipo"},
     {id:"gestion", href:`${basePath}gestion_hojas.html`, label:"Gestión"},
     {id:"usuarios", href:`${basePath}usuarios.html`, label:"Usuarios"}
-  ].filter(l => !sesion || sigmaTienePagina(l.id));
+  ].filter(l => !sesion || sigmaTienePagina(l.perm || l.id));
   const linksHtml = links.map(l =>
     `<a class="nav-link${l.id===activePage?" active":""}" href="${l.href}">${iconos[l.id]}${l.label}</a>`
   ).join("");

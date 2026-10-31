@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGMA · Cálculo de bombas</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#12122a; --card:#1c1c3a; --card2:#25254c; --line:#34346a;
+  --txt:#e8e9f5; --mut:#9a9cc0; --vio:#6c5dd3; --vio2:#9b8afb;
+  --ok:#2fbf8f; --warn:#f0b24a; --bad:#ef5f6b; --teal:#35c2c9; --pink:#ff7ab6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 600px at 10% -10%,rgba(108,93,211,.25),transparent),var(--bg);
+  color:var(--txt);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;line-height:1.45}
+.wrap{max-width:1500px;margin:0 auto;padding:18px 16px 60px}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+h1{margin:0;font-size:24px;font-weight:700}
+.sub{margin:2px 0 0;color:var(--mut)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{background:linear-gradient(135deg,var(--vio),#8a6cf0);color:#fff;border:0;border-radius:10px;padding:8px 14px;font-weight:600;cursor:pointer;font-size:13px}
+a.linkbtn{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-weight:600;font-size:13px;color:var(--txt);text-decoration:none}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+button.small{padding:5px 10px;font-size:12px}
+button.x{background:transparent;color:var(--bad);border:1px solid var(--line);padding:4px 9px}
+.grid{display:grid;grid-template-columns:minmax(340px,440px) 1fr;gap:18px;align-items:start}
+@media(max-width:980px){.grid{grid-template-columns:1fr}}
+.card{background:linear-gradient(160deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:15px;font-weight:700;color:var(--vio2)}
+.card h3{margin:12px 0 6px;font-size:13px;color:var(--mut);font-weight:600}
+.f{display:grid;grid-template-columns:1fr 160px;gap:6px 10px;align-items:center;margin-bottom:6px}
+.f label{color:var(--txt)}
+.f small{display:block;color:var(--mut);font-size:11px}
+input,select,textarea{width:100%;background:#15152f;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:6px 8px;font:inherit}
+input[readonly]{opacity:.65}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--vio);border-color:transparent}
+.f.full{grid-template-columns:1fr}
+.chk{display:flex;gap:8px;align-items:center;margin:6px 0}
+.chk input{width:auto}
+.accrow{display:grid;grid-template-columns:1fr 62px 52px 30px;gap:6px;margin-bottom:5px}
+.acchead{display:grid;grid-template-columns:1fr 62px 52px 30px;gap:6px;color:var(--mut);font-size:11px;margin:4px 0}
+.sumk{color:var(--mut);font-size:12px;margin-top:4px}
+.ptrow{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 30px;gap:6px;margin-bottom:5px}
+.pthead{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 30px;gap:6px;color:var(--mut);font-size:11px;margin-bottom:4px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:8px}
+.kpi{background:#15152f;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.kpi .l{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:22px;font-weight:700;margin-top:2px}
+.kpi .u{font-size:12px;color:var(--mut);font-weight:500}
+.kpi.ok .v{color:var(--ok)} .kpi.warn .v{color:var(--warn)} .kpi.bad .v{color:var(--bad)}
+.alerts{list-style:none;padding:0;margin:8px 0 0}
+.alerts li{padding:6px 10px;border-radius:8px;margin-bottom:5px;background:#15152f;border-left:4px solid var(--mut)}
+.alerts li.ok{border-color:var(--ok)} .alerts li.warn{border-color:var(--warn)} .alerts li.bad{border-color:var(--bad)} .alerts li.info{border-color:var(--teal)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mut);font-weight:600}
+tr.tot td{font-weight:700;color:var(--vio2);border-top:2px solid var(--vio)}
+.chartbox{position:relative;height:340px}
+svg.esq{width:100%;height:auto;background:#15152f;border-radius:12px;border:1px solid var(--line)}
+.esq .pipe{stroke:var(--vio2);stroke-width:6;fill:none;stroke-linejoin:round}
+.esq .dim{stroke:var(--warn);stroke-width:1.5;fill:none}
+.esq .ref{stroke:var(--mut);stroke-width:1;stroke-dasharray:4 4;fill:none}
+.esq .body{fill:var(--card2);stroke:var(--vio2);stroke-width:2}
+.esq .liq{fill:rgba(53,194,201,.28);stroke:var(--teal);stroke-width:2}
+.esq .tank{fill:none;stroke:var(--mut);stroke-width:3}
+.esq text{fill:var(--txt);font-size:13px;font-family:inherit}
+.esq text.d{fill:var(--warn);font-weight:700}
+.esq text.m{fill:var(--mut);font-size:12px}
+details{margin-top:6px} summary{cursor:pointer;color:var(--vio2);font-weight:600}
+.note{color:var(--mut);font-size:12px}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--mut)}
+@media print{
+  body{background:#fff;color:#000}
+  .card,.kpi,svg.esq{background:#fff!important;border-color:#bbb!important}
+  .btns,.col-in,details summary,button{display:none!important}
+  .grid{grid-template-columns:1fr}
+  .kpi .v,.card h2,th,.note{color:#000!important}
+  .esq text{fill:#000}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div>
+    <h1>Cálculo de bombas</h1>
+    <p class="sub">Bernoulli + Darcy (Colebrook) · curva del sistema vs. curva de la bomba · NPSH · motor</p>
+  </div>
+  <div class="btns">
+    <a class="linkbtn" href="dashboard.html">← Volver a SIGMA</a>
+    <button id="btnPrint">Imprimir / Guardar PDF</button>
+    <button id="btnReset" class="ghost">Restablecer ejemplo</button>
+  </div>
+</header>
+
+<div class="grid">
+<!-- ================= ENTRADAS ================= -->
+<section class="col-in">
+
+  <div class="card">
+    <h2>1 · Sistema y fluido</h2>
+    <div class="f"><label>Caudal de diseño<small>m³/h</small></label><input type="number" step="any" id="q"></div>
+    <div class="f"><label>Temperatura del agua<small>°C</small></label><input type="number" step="any" id="temp"></div>
+    <div class="chk"><input type="checkbox" id="manual"><label for="manual">Ingresar propiedades del fluido a mano</label></div>
+    <div class="f"><label>Densidad ρ<small>kg/m³</small></label><input type="number" step="any" id="rho"></div>
+    <div class="f"><label>Viscosidad dinámica μ<small>mPa·s (cP)</small></label><input type="number" step="any" id="mu"></div>
+    <div class="f"><label>Presión de vapor Pv<small>kPa absolutos</small></label><input type="number" step="any" id="pv"></div>
+    <div class="f"><label>Altitud de la planta<small id="patmtxt">m s.n.m.</small></label><input type="number" step="any" id="alt"></div>
+
+    <h3>Alturas y presiones</h3>
+    <div class="f"><label>Posición de la bomba</label>
+      <select id="pos"><option value="aspiracion">Sobre el nivel (aspiración)</option><option value="inundada">Bajo el nivel (inundada)</option></select></div>
+    <div class="f"><label>Hs · desnivel eje de bomba ↔ nivel del líquido<small>m (valor positivo)</small></label><input type="number" step="any" min="0" id="hs"></div>
+    <div class="f"><label>Hr · elevación del punto de descarga sobre el eje<small>m (si descarga a tanque: nivel del líquido)</small></label><input type="number" step="any" id="zd"></div>
+    <div class="f"><label>Presión sobre el líquido de succión<small>kPa manométricos (0 = abierto)</small></label><input type="number" step="any" id="p1"></div>
+    <div class="f"><label>Presión en el destino<small>kPa manométricos (0 = abierto)</small></label><input type="number" step="any" id="p2"></div>
+    <div class="chk"><input type="checkbox" id="libre"><label for="libre">Descarga libre al aire (suma la altura de velocidad V²/2g)</label></div>
+  </div>
+
+  <div class="card" id="cardS"></div>
+  <div class="card" id="cardD"></div>
+
+  <div class="card">
+    <h2>4 · Bomba y motor</h2>
+    <div class="f"><label>Rendimiento de la bomba (si la tabla no trae η)<small>%</small></label><input type="number" step="any" id="eta"></div>
+    <div class="f"><label>NPSH requerido (si la tabla no trae NPSHr)<small>m</small></label><input type="number" step="any" id="npshr"></div>
+    <div class="f"><label>Margen del motor sobre potencia al eje<small>%</small></label><input type="number" step="any" id="margen"></div>
+    <div class="f"><label>Grado del polinomio de ajuste H(Q)</label>
+      <select id="grado"><option value="2">2 (parábola)</option><option value="3">3</option></select></div>
+
+    <h3>Curva de la bomba (datos del fabricante)</h3>
+    <div class="pthead"><span>Q (m³/h)</span><span>H (m)</span><span>η (%) opc.</span><span>NPSHr (m) opc.</span><span></span></div>
+    <div id="ptbody"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+      <button class="small ghost" id="ptAdd">+ Fila</button>
+      <button class="small ghost" id="ptEj">Cargar ejemplo</button>
+      <button class="small ghost" id="ptClr">Vaciar</button>
+    </div>
+    <details><summary>Pegar desde Excel</summary>
+      <p class="note">Pegá columnas Q, H y, si las tenés, η y NPSHr (separadas por tab, espacio o punto y coma; acepta coma decimal).</p>
+      <textarea id="ptPaste" rows="5" placeholder="0&#9;38&#10;10&#9;37&#10;20&#9;34"></textarea>
+      <button class="small" id="ptPasteBtn" style="margin-top:6px">Usar estos datos</button>
+    </details>
+  </div>
+</section>
+
+<!-- ================= RESULTADOS ================= -->
+<section class="col-out">
+  <div class="card">
+    <h2>Esquema del sistema</h2>
+    <div id="esquema"></div>
+  </div>
+
+  <div class="card">
+    <h2>Punto de diseño (caudal ingresado)</h2>
+    <div class="kpis" id="kpiDis"></div>
+    <ul class="alerts" id="alDis"></ul>
+  </div>
+
+  <div class="card">
+    <h2>Punto de operación con la bomba cargada</h2>
+    <div id="opBox" class="note">Cargá al menos 2 puntos H–Q de la bomba para ver el punto de operación.</div>
+  </div>
+
+  <div class="card">
+    <h2>Curva del sistema vs. curva de la bomba</h2>
+    <div class="chartbox"><canvas id="chH"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>NPSH disponible vs. requerido</h2>
+    <div class="chartbox"><canvas id="chN"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>Desglose en el punto de diseño</h2>
+    <div id="desglose"></div>
+    <h3>Régimen de flujo por tramo</h3>
+    <div id="tramos"></div>
+  </div>
+
+  <div class="card">
+    <h2>Método de cálculo</h2>
+    <details open><summary>Ecuaciones usadas</summary>
+    <p class="mono">Bernoulli entre la superficie de succión (1, V≈0) y el punto de descarga (2):<br>
+    H(Q) = (z₂−z₁) + (P₂−P₁)/(ρg) + V₂²/2g [si descarga libre] + Σhf + Σhloc<br><br>
+    Darcy-Weisbach: hf = f · (L/D) · V²/2g<br>
+    Re = ρVD/μ · laminar (Re&lt;2300): f = 64/Re · turbulento: Colebrook-White<br>
+    1/√f = −2 log₁₀( (ε/D)/3,7 + 2,51/(Re√f) ) (iterado hasta converger)<br>
+    Accesorios: hloc = ΣK · V²/2g, con la V del tramo donde está el accesorio<br><br>
+    Potencia hidráulica Ph = ρ g Q H · potencia al eje = Ph/η · motor = P eje × (1+margen), redondeado a la serie normalizada<br>
+    NPSHa = (Patm + P₁)/(ρg) ∓ Hs − hf succión − hloc succión − Pv/(ρg)  (− aspiración, + inundada)<br>
+    Punto de operación: intersección de H<sub>bomba</sub>(Q) (ajuste polinómico de la tabla) con H(Q) del sistema.</p>
+    <p class="note">Los valores de rugosidad y de K son típicos de bibliografía (Moody / Crane / Çengel). Ajustalos según el estado real de la cañería y los catálogos de las válvulas. Los diámetros nominales corresponden a tubería schedule 40. Los resultados son una guía de ingeniería, no reemplazan la verificación con la curva real de la bomba instalada.</p>
+    </details>
+  </div>
+</section>
+</div>
+</div>
+
+<script>
+// ============================ NUCLEO (sin DOM) ============================
+const G = 9.80665;
+const AGUA_T  = [0,10,20,30,40,50,60,70,80,90,100];
+const AGUA_RHO= [999.8,999.7,998.2,995.7,992.2,988.0,983.2,977.8,971.8,965.3,958.4];
+const AGUA_MU = [1.792,1.307,1.002,0.797,0.653,0.547,0.466,0.404,0.354,0.315,0.282]; // mPa·s
+const AGUA_PV = [0.611,1.228,2.339,4.246,7.384,12.35,19.94,31.19,47.39,70.14,101.33]; // kPa abs
+const MOTORES_KW = [0.37,0.55,0.75,1.1,1.5,2.2,3,4,5.5,7.5,11,15,18.5,22,30,37,45,55,75,90,110,132,160,200,250,315,355,400,450,500];
+
+function interp(xs, ys, x){
+  if (x <= xs[0]) return ys[0];
+  if (x >= xs[xs.length-1]) return ys[ys.length-1];
+  for (let i=1;i<xs.length;i++){
+    if (x <= xs[i]){ const t=(x-xs[i-1])/(xs[i]-xs[i-1]); return ys[i-1]+t*(ys[i]-ys[i-1]); }
+  }
+}
+function aguaProps(T){ return { rho:interp(AGUA_T,AGUA_RHO,T), mu:interp(AGUA_T,AGUA_MU,T), pv:interp(AGUA_T,AGUA_PV,T) }; }
+function patmKPa(alt){ return 101.325*Math.pow(1-2.25577e-5*alt,5.25588); }
+
+function colebrook(Re, rr){            // rr = ε/D
+  if (Re <= 0) return 0;
+  if (Re < 2300) return 64/Re;
+  let f = 0.25/Math.pow(Math.log10(rr/3.7 + 5.74/Math.pow(Re,0.9)),2);   // semilla Swamee-Jain
+  for (let i=0;i<60;i++){
+    const fn = 1/Math.pow(-2*Math.log10(rr/3.7 + 2.51/(Re*Math.sqrt(f))),2);
+    if (Math.abs(fn-f) < 1e-12){ f = fn; break; }
+    f = fn;
+  }
+  return f;
+}
+// fl: {rho, mu (Pa·s), pv (kPa)}; Qs en m3/s; D, L, eps en m
+function tramo(Qs, D, L, eps, sumK, fl){
+  const A = Math.PI*D*D/4;
+  const V = Qs/A, hv = V*V/(2*G);
+  if (!(V > 0)) return {A,V:0,Re:0,f:0,hf:0,hl:0,hv:0,rr:eps/D};
+  const Re = fl.rho*V*D/fl.mu, rr = eps/D, f = colebrook(Re, rr);
+  return {A,V,Re,rr,f,hv,hf:f*(L/D)*hv,hl:sumK*hv};
+}
+function sistema(Qh, S){
+  const Qs = Qh/3600;
+  const s = tramo(Qs,S.suc.D,S.suc.L,S.suc.eps,S.suc.K,S.fl);
+  const d = tramo(Qs,S.des.D,S.des.L,S.des.eps,S.des.K,S.fl);
+  const lift = S.pos === 'aspiracion';
+  const zsig = lift ? S.Hs : -S.Hs;                 // desnivel del líquido bajo (+) / sobre (−) el eje
+  const zest = S.zd + zsig;                          // altura estática total
+  const hp   = (S.P2 - S.P1)*1000/(S.fl.rho*G);      // término de presión
+  const hc   = S.libre ? d.hv : 0;                   // altura de velocidad a la salida
+  const H    = zest + hp + hc + s.hf + s.hl + d.hf + d.hl;
+  const npsha = (S.patm + S.P1)*1000/(S.fl.rho*G) - zsig - s.hf - s.hl - S.fl.pv*1000/(S.fl.rho*G);
+  return {H, npsha, s, d, zest, hp, hc, zsig};
+}
+function polyfit(xs, ys, deg){
+  const n = xs.length; deg = Math.min(deg, n-1); const m = deg+1;
+  const sc = Math.max(...xs.map(Math.abs)) || 1;
+  const A = Array.from({length:m},()=>Array(m+1).fill(0));
+  for (let k=0;k<n;k++){
+    const x = xs[k]/sc, pw=[1];
+    for (let i=1;i<=2*deg;i++) pw[i]=pw[i-1]*x;
+    for (let i=0;i<m;i++){ for (let j=0;j<m;j++) A[i][j]+=pw[i+j]; A[i][m]+=pw[i]*ys[k]; }
+  }
+  for (let i=0;i<m;i++){
+    let p=i; for (let r=i+1;r<m;r++) if (Math.abs(A[r][i])>Math.abs(A[p][i])) p=r;
+    [A[i],A[p]]=[A[p],A[i]];
+    const d=A[i][i]; if (Math.abs(d)<1e-14) return null;
+    for (let c=i;c<=m;c++) A[i][c]/=d;
+    for (let r=0;r<m;r++){ if (r===i) continue; const f=A[r][i]; for (let c=i;c<=m;c++) A[r][c]-=f*A[i][c]; }
+  }
+  return {c:A.map(r=>r[m]), sc};
+}
+function polyval(p, x){ const t=x/p.sc; let r=0; for (let i=p.c.length-1;i>=0;i--) r=r*t+p.c[i]; return r; }
+// intersección bomba/sistema: primer cruce donde la bomba pasa de estar por encima a por debajo
+function interseccion(fH, Hsys, qa, qb){
+  const N=600; let prev=null;
+  for (let i=0;i<=N;i++){
+    const q=qa+(qb-qa)*i/N, F=polyval(fH,q)-Hsys(q);
+    if (prev && prev.F>0 && F<=0){
+      let lo=prev.q, hi=q;
+      for (let k=0;k<70;k++){ const mid=(lo+hi)/2; if (polyval(fH,mid)-Hsys(mid)>0) lo=mid; else hi=mid; }
+      return (lo+hi)/2;
+    }
+    prev={q,F};
+  }
+  return null;
+}
+function motorNormalizado(kw){ for (const m of MOTORES_KW) if (m >= kw-1e-9) return m; return null; }
+// ============================ FIN NUCLEO ============================
+
+// ---------------------------- catálogos ----------------------------
+const MATERIALES = [
+  ["Acero comercial (nuevo)",0.046],["Acero galvanizado",0.15],["Acero con corrosión leve",0.5],
+  ["Hierro fundido (nuevo)",0.26],["Hierro fundido (usado)",1.0],["Acero inoxidable",0.015],
+  ["PVC / PE / PRFV (liso)",0.0015],["Cobre / latón / tubo estirado",0.0015],["Hormigón alisado",0.3],
+  ["Personalizada…",null]
+];
+const DIAMETROS = [
+  ['1"',26.64],['1 1/4"',35.05],['1 1/2"',40.90],['2"',52.50],['2 1/2"',62.71],['3"',77.92],['4"',102.26],
+  ['5"',128.19],['6"',154.05],['8"',202.72],['10"',254.51],['12"',303.23],['Personalizado…',null]
+];
+const ACC = [
+  ["Entrada de tanque, borde vivo",0.5],["Entrada de tanque, redondeada",0.05],["Válvula de pie con colador",1.5],
+  ["Codo 90° radio normal (bridado)",0.30],["Codo 90° roscado",0.90],["Codo 45°",0.20],
+  ["Te, paso directo",0.20],["Te, derivación",1.00],
+  ["Válvula de compuerta (abierta)",0.20],["Válvula esférica (abierta)",0.05],["Válvula mariposa (abierta)",0.50],
+  ["Válvula globo (abierta)",10.0],["Válvula de retención a clapeta",2.0],
+  ["Reducción concéntrica gradual",0.10],["Salida a tanque (sumergida)",1.0],["Otro (K manual)",1.0]
+];
+const IDS = ['q','temp','manual','rho','mu','pv','alt','pos','hs','zd','p1','p2','libre',
+  's_mat','s_eps','s_dn','s_dint','s_L','d_mat','d_eps','d_dn','d_dint','d_L','eta','npshr','margen','grado'];
+
+const DEFAULT = {
+  vals:{q:30,temp:30,manual:false,alt:0,pos:'aspiracion',hs:2,zd:18,p1:0,p2:0,libre:true,
+    s_mat:0,s_eps:0.1,s_dn:6,s_dint:100,s_L:8,d_mat:0,d_eps:0.1,d_dn:5,d_dint:80,d_L:67,
+    eta:70,npshr:3.2,margen:15,grado:2},
+  acc:{
+    s:[{n:"Válvula de pie con colador",K:1.5,c:1},{n:"Codo 90° radio normal (bridado)",K:0.30,c:1}],
+    d:[{n:"Válvula de retención a clapeta",K:2.0,c:1},{n:"Válvula de compuerta (abierta)",K:0.20,c:1},{n:"Codo 90° radio normal (bridado)",K:0.30,c:3}]
+  },
+  pts:[[0,38,'',''],[10,37,'',''],[20,34,'',''],[30,29.5,70,3.2],[40,23,'',''],[50,14,'','']]
+};
+const KEY = 'sigma_calculo_bombas_v1';
+let acc = JSON.parse(JSON.stringify(DEFAULT.acc));
+let pts = JSON.parse(JSON.stringify(DEFAULT.pts));
+let chH=null, chN=null;
+
+// ---------------------------- utilidades ----------------------------
+const $ = id => document.getElementById(id);
+const num = v => { const x = parseFloat(String(v).replace(',','.')); return isNaN(x) ? 0 : x; };
+const val = id => { const e=$(id); return e.type==='checkbox' ? e.checked : e.value; };
+const fmt = (x,d=2) => (x===null||x===undefined||isNaN(x)) ? '—' : x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+function tramoCard(p, titulo){
+  return `<h2>${titulo}</h2>
+  <div class="f"><label>Material de la cañería<small id="${p}_epstxt"></small></label>
+    <select id="${p}_mat">${MATERIALES.map((m,i)=>`<option value="${i}">${m[0]}${m[1]!==null?' (ε '+m[1]+' mm)':''}</option>`).join('')}</select></div>
+  <div class="f" id="${p}_epsrow"><label>Rugosidad absoluta ε<small>mm</small></label><input type="number" step="any" min="0" id="${p}_eps"></div>
+  <div class="f"><label>Diámetro nominal (sch 40)</label>
+    <select id="${p}_dn">${DIAMETROS.map((d,i)=>`<option value="${i}">${d[0]}${d[1]!==null?' · Di '+d[1]+' mm':''}</option>`).join('')}</select></div>
+  <div class="f" id="${p}_dintrow"><label>Diámetro interior<small>mm</small></label><input type="number" step="any" min="0" id="${p}_dint"></div>
+  <div class="f"><label>Longitud de cañería recta<small>m</small></label><input type="number" step="any" min="0" id="${p}_L"></div>
+  <h3>Accesorios (coeficiente K)</h3>
+  <div class="acchead"><span>Accesorio</span><span>K</span><span>Cant.</span><span></span></div>
+  <div id="acc_${p}"></div>
+  <button class="small ghost" data-addacc="${p}">+ Accesorio</button>
+  <div class="sumk" id="sumk_${p}"></div>`;
+}
+
+// ---------------------------- accesorios ----------------------------
+function renderAcc(p){
+  const box = $('acc_'+p); box.innerHTML='';
+  acc[p].forEach((a,i)=>{
+    const row = document.createElement('div'); row.className='accrow';
+    row.innerHTML = `<select data-f="n">${ACC.map(x=>`<option ${x[0]===a.n?'selected':''}>${x[0]}</option>`).join('')}</select>
+      <input type="number" step="any" min="0" value="${a.K}" data-f="K">
+      <input type="number" step="1" min="0" value="${a.c}" data-f="c">
+      <button class="x" title="Quitar">×</button>`;
+    row.querySelector('[data-f=n]').addEventListener('change',e=>{
+      a.n = e.target.value; const c = ACC.find(x=>x[0]===a.n);
+      if (c && a.n !== 'Otro (K manual)') a.K = c[1];
+      renderAcc(p); run();
+    });
+    row.querySelector('[data-f=K]').addEventListener('input',e=>{ a.K=num(e.target.value); run(); });
+    row.querySelector('[data-f=c]').addEventListener('input',e=>{ a.c=num(e.target.value); run(); });
+    row.querySelector('.x').addEventListener('click',()=>{ acc[p].splice(i,1); renderAcc(p); run(); });
+    box.appendChild(row);
+  });
+}
+const sumK = p => acc[p].reduce((s,a)=>s+a.K*a.c,0);
+
+// ---------------------------- tabla de bomba ----------------------------
+function renderPts(){
+  const box = $('ptbody'); box.innerHTML='';
+  pts.forEach((r,i)=>{
+    const row=document.createElement('div'); row.className='ptrow';
+    row.innerHTML = [0,1,2,3].map(k=>`<input type="text" inputmode="decimal" value="${r[k]}" data-k="${k}">`).join('')+`<button class="x" title="Quitar">×</button>`;
+    row.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{ pts[i][+e.target.dataset.k]=e.target.value; run(); }));
+    row.querySelector('.x').addEventListener('click',()=>{ pts.splice(i,1); renderPts(); run(); });
+    box.appendChild(row);
+  });
+}
+
+// ---------------------------- estado ----------------------------
+function save(){
+  try{
+    const vals={}; IDS.forEach(id=>vals[id]=val(id));
+    localStorage.setItem(KEY, JSON.stringify({vals,acc,pts}));
+  }catch(e){}
+}
+function applyVals(vals){
+  IDS.forEach(id=>{ const e=$(id); if(!e||!(id in vals)) return; if(e.type==='checkbox') e.checked=!!vals[id]; else e.value=vals[id]; });
+}
+function load(){
+  let st=null;
+  try{ st=JSON.parse(localStorage.getItem(KEY)); }catch(e){}
+  if (st && st.vals){ applyVals(st.vals); acc=st.acc||acc; pts=st.pts||pts; }
+  else applyVals(DEFAULT.vals);
+}
+
+// ---------------------------- lectura de datos ----------------------------
+function getTramo(p){
+  const m = MATERIALES[+val(p+'_mat')];
+  const epsmm = m[1]===null ? num(val(p+'_eps')) : m[1];
+  const d = DIAMETROS[+val(p+'_dn')];
+  const Dmm = d[1]===null ? num(val(p+'_dint')) : d[1];
+  return {eps:epsmm/1000, D:Dmm/1000, L:num(val(p+'_L')), K:sumK(p), Dmm, epsmm, nom: d[1]===null ? `Ø ${fmt(Dmm,0)} mm` : 'Ø '+d[0], mat:m[0]};
+}
+function updFluido(){
+  if (!val('manual')){
+    const w = aguaProps(num(val('temp')));
+    $('rho').value = w.rho.toFixed(1); $('mu').value = w.mu.toFixed(3); $('pv').value = w.pv.toFixed(2);
+  }
+  ['rho','mu','pv'].forEach(id=>$(id).readOnly = !val('manual'));
+  const pa = patmKPa(num(val('alt')));
+  $('patmtxt').textContent = `m s.n.m. · Patm = ${fmt(pa,1)} kPa`;
+  ['s','d'].forEach(p=>{
+    $(p+'_epsrow').style.display = MATERIALES[+val(p+'_mat')][1]===null ? '' : 'none';
+    $(p+'_dintrow').style.display = DIAMETROS[+val(p+'_dn')][1]===null ? '' : 'none';
+    $('sumk_'+p).textContent = 'ΣK del tramo = '+fmt(sumK(p),2);
+  });
+}
+function getS(){
+  const fl = {rho:num(val('rho')), mu:num(val('mu'))/1000, pv:num(val('pv'))};
+  return { fl, patm:patmKPa(num(val('alt'))), pos:val('pos'), Hs:Math.abs(num(val('hs'))), zd:num(val('zd')),
+    P1:num(val('p1')), P2:num(val('p2')), libre:val('libre'), suc:getTramo('s'), des:getTramo('d') };
+}
+
+// ---------------------------- esquema ----------------------------
+function esquema(S){
+  const lift = S.pos==='aspiracion', y0=250;
+  const pxH = Math.min(80, 30+22*Math.sqrt(S.Hs));
+  const pxR = Math.min(150, 34+16*Math.sqrt(Math.abs(S.zd)));
+  const yLiq = lift ? y0+pxH : y0-pxH;
+  const tTop = yLiq-25, tBot = lift ? yLiq+45 : y0+30;
+  const yTop = S.zd>=0 ? y0-24-pxR : y0-24+pxR*0.6;
+  let suc;
+  if (lift) suc = `<path class="pipe" d="M125 ${yLiq+32} L125 ${y0} L336 ${y0}"/><rect x="113" y="${yLiq+30}" width="24" height="12" rx="3" class="body"/>`;
+  else      suc = `<path class="pipe" d="M190 ${y0} L336 ${y0}"/>`;
+  const liq = `<rect class="liq" x="60" y="${yLiq}" width="130" height="${tBot-yLiq}"/>`;
+  const tank = `<path class="tank" d="M60 ${tTop} L60 ${tBot} L190 ${tBot} L190 ${tTop}"/>`;
+  const dnS = S.suc.nom, dnD = S.des.nom;
+  const hsLbl = `Hs = ${fmt(S.Hs,1)} m`, hrLbl = `Hr = ${fmt(S.zd,1)} m`;
+  return `<svg class="esq" viewBox="0 0 800 400" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f0b24a"/></marker>
+  <marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#9b8afb"/></marker></defs>
+  ${liq}${tank}
+  <text class="m" x="125" y="${tTop-8}" text-anchor="middle">Tanque de succión</text>
+  ${suc}
+  <path class="ref" d="M200 ${y0} L650 ${y0}"/>
+  <path class="ref" d="M190 ${yLiq} L232 ${yLiq}"/>
+  <path class="dim" marker-start="url(#ar)" marker-end="url(#ar)" d="M222 ${y0} L222 ${yLiq}"/>
+  <text class="d" x="232" y="${(y0+yLiq)/2+4}">${hsLbl}</text>
+  <path class="body" d="M330 ${y0+24} L490 ${y0+24} L490 ${y0+36} L330 ${y0+36} z"/>
+  <rect class="body" x="384" y="${y0-18}" width="86" height="36" rx="6"/>
+  <path d="M396 ${y0-18} v36 M410 ${y0-18} v36 M424 ${y0-18} v36 M438 ${y0-18} v36 M452 ${y0-18} v36" stroke="#9b8afb" stroke-width="1"/>
+  <circle class="body" cx="360" cy="${y0}" r="25"/>
+  <text x="360" y="${y0+5}" text-anchor="middle" style="font-weight:700">B</text>
+  <text class="m" x="430" y="${y0+54}" text-anchor="middle">Bomba + motor</text>
+  <path class="pipe" d="M360 ${y0-25} L360 ${yTop} L610 ${yTop}" marker-end="url(#ar2)"/>
+  <path class="ref" d="M610 ${yTop} L655 ${yTop}"/>
+  <path class="dim" marker-start="url(#ar)" marker-end="url(#ar)" d="M648 ${y0} L648 ${yTop}"/>
+  <text class="d" x="656" y="${(y0+yTop)/2+4}">${hrLbl}</text>
+  <text class="m" x="${lift?326:198}" y="${lift?y0-34:y0+54}" text-anchor="${lift?'end':'start'}">Succión · Ls = ${fmt(S.suc.L,0)} m · ${dnS}</text>
+  <text class="m" x="380" y="${yTop-12}">Descarga · Lr = ${fmt(S.des.L,0)} m · ${dnD}</text>
+  <text class="m" x="20" y="392">${lift?'Bomba sobre el nivel (aspiración): Hs resta NPSH y suma altura':'Bomba bajo el nivel (inundada): Hs suma NPSH y resta altura'}</text>
+  <text class="m" x="400" y="${yTop+30}">${S.libre?'↓ descarga libre':'↓ descarga a tanque/presión'}</text>
+  </svg>`;
+}
+
+// ---------------------------- cálculo principal ----------------------------
+function pointsValid(){
+  return pts.map(r=>({q:num(r[0]), h:num(r[1]), e:String(r[2]).trim()===''?null:num(r[2]), n:String(r[3]).trim()===''?null:num(r[3]),
+      ok: String(r[0]).trim()!=='' && String(r[1]).trim()!==''}))
+    .filter(r=>r.ok).sort((a,b)=>a.q-b.q);
+}
+function run(){
+  updFluido();
+  const S = getS();
+  const Q = num(val('q'));
+  $('esquema').innerHTML = esquema(S);
+  save();
+
+  const bad = !(S.fl.rho>0 && S.fl.mu>0 && S.suc.D>0 && S.des.D>0 && Q>0);
+  if (bad){
+    $('kpiDis').innerHTML = '<div class="note">Completá caudal, fluido y diámetros para calcular.</div>';
+    $('alDis').innerHTML=''; return;
+  }
+  const eta = num(val('eta'))/100 || 0.7, margen = num(val('margen'))/100;
+  const D = sistema(Q,S);
+  const Ph = S.fl.rho*G*(Q/3600)*D.H/1000;
+  const Pe = Ph/eta, Pm = Pe*(1+margen), motor = motorNormalizado(Pm);
+  const npshrM = num(val('npshr'));
+
+  // ---- tabla de bomba: ajustes
+  const P = pointsValid();
+  const grado = +val('grado');
+  let fH=null, fE=null, fN=null, qa=0, qb=0;
+  if (P.length>=2){
+    fH = polyfit(P.map(r=>r.q),P.map(r=>r.h),grado);
+    const pe = P.filter(r=>r.e!==null), pn = P.filter(r=>r.n!==null);
+    if (pe.length>=2) fE = polyfit(pe.map(r=>r.q),pe.map(r=>r.e),2);
+    if (pn.length>=2) fN = polyfit(pn.map(r=>r.q),pn.map(r=>r.n),2);
+    qa=P[0].q; qb=P[P.length-1].q;
+  }
+
+  // ---- KPIs diseño
+  const margenN = D.npsha - npshrM;
+  const clsN = margenN<0 ? 'bad' : (margenN<0.5 || D.npsha<1.2*npshrM) ? 'warn' : 'ok';
+  $('kpiDis').innerHTML = `
+    <div class="kpi"><div class="l">TDH requerida</div><div class="v">${fmt(D.H,2)} <span class="u">m</span></div></div>
+    <div class="kpi"><div class="l">Potencia hidráulica</div><div class="v">${fmt(Ph,2)} <span class="u">kW</span></div></div>
+    <div class="kpi"><div class="l">Potencia al eje (η ${fmt(eta*100,0)} %)</div><div class="v">${fmt(Pe,2)} <span class="u">kW</span></div></div>
+    <div class="kpi"><div class="l">Motor sugerido (+${fmt(margen*100,0)} %)</div><div class="v">${motor?fmt(motor,motor<1?2:(Number.isInteger(motor)?0:1)):'—'} <span class="u">kW · ${motor?fmt(motor*1.341,1):'—'} hp</span></div></div>
+    <div class="kpi ${clsN}"><div class="l">NPSH disponible</div><div class="v">${fmt(D.npsha,2)} <span class="u">m</span></div></div>
+    <div class="kpi ${clsN}"><div class="l">Margen NPSHa − NPSHr</div><div class="v">${fmt(margenN,2)} <span class="u">m</span></div></div>`;
+
+  // ---- alertas
+  const al=[];
+  const vs=D.s.V, vd=D.d.V;
+  if (vs>1.5) al.push(['warn',`Velocidad de succión alta (${fmt(vs,2)} m/s). Lo recomendable es ≤ 1,5 m/s para no perder NPSH.`]);
+  else if (vs<0.3) al.push(['info',`Velocidad de succión muy baja (${fmt(vs,2)} m/s): riesgo de sedimentación si el fluido lleva sólidos.`]);
+  else al.push(['ok',`Velocidad de succión ${fmt(vs,2)} m/s: adecuada.`]);
+  if (vd>3) al.push(['warn',`Velocidad de descarga alta (${fmt(vd,2)} m/s). Revisá el diámetro (ruido, erosión, golpe de ariete).`]);
+  else al.push(['ok',`Velocidad de descarga ${fmt(vd,2)} m/s: dentro de lo usual (hasta ~3 m/s).`]);
+  if (margenN<0) al.push(['bad',`NPSHa menor que NPSHr: la bomba cavita. Bajá la bomba respecto del nivel, agrandá la succión o reducí accesorios.`]);
+  else if (clsN==='warn') al.push(['warn',`Margen de NPSH justo. Se recomienda NPSHa ≥ NPSHr + 0,5 m o ≥ 1,2 × NPSHr.`]);
+  else al.push(['ok',`Margen de NPSH suficiente (${fmt(margenN,2)} m).`]);
+  [['succión',D.s],['descarga',D.d]].forEach(([n,t])=>{ if (t.Re>=2300 && t.Re<4000) al.push(['warn',`Régimen de transición en la ${n} (Re = ${fmt(t.Re,0)}): el factor f es incierto.`]); if (t.Re<2300) al.push(['info',`Flujo laminar en la ${n} (Re = ${fmt(t.Re,0)}): f = 64/Re.`]); });
+  if (D.npsha<=0) al.push(['bad','NPSH disponible ≤ 0: la bomba no puede aspirar en estas condiciones (revisá Hs, temperatura y altitud).']);
+  if (fH && (Q<qa*0.999 || Q>qb*1.001)) al.push(['warn',`El caudal de diseño (${fmt(Q,1)} m³/h) está fuera del rango de la tabla de la bomba (${fmt(qa,0)}–${fmt(qb,0)} m³/h).`]);
+  $('alDis').innerHTML = al.map(a=>`<li class="${a[0]}">${a[1]}</li>`).join('');
+
+  // ---- punto de operación
+  const Hsys = q => sistema(q,S).H;
+  let op=null, opHTML='';
+  if (fH){
+    const qop = interseccion(fH,Hsys,qa,qb);
+    if (qop===null){
+      const F0 = polyval(fH,Math.max(qa,1e-6))-Hsys(Math.max(qa,1e-6));
+      opHTML = F0<=0
+        ? `<div class="kpi bad"><div class="v" style="font-size:15px">La bomba no alcanza: su curva queda por debajo de la curva del sistema en todo el rango cargado.</div></div>`
+        : `<div class="kpi warn"><div class="v" style="font-size:15px">La curva de la bomba no corta la del sistema dentro del rango de la tabla (${fmt(qa,0)}–${fmt(qb,0)} m³/h). Extendé la tabla hacia mayores caudales si el fabricante la tiene.</div></div>`;
+    } else {
+      const hop = polyval(fH,qop), so = sistema(qop,S);
+      const eop = fE ? Math.max(0.05,Math.min(0.95,polyval(fE,qop)/100)) : eta;
+      const php = S.fl.rho*G*(qop/3600)*hop/1000, pe = php/eop, pm = pe*(1+margen);
+      const nr = fN ? polyval(fN,qop) : npshrM;
+      const mg = so.npsha - nr;
+      let bep=null, qbep=null;
+      if (fE){ let best=-1; for (let i=0;i<=300;i++){ const q=qa+(qb-qa)*i/300, e=polyval(fE,q); if (e>best){best=e;qbep=q;} } bep=best; }
+      op={qop,hop,eop,pe,php,nr,mg,so,qbep};
+      const cm = mg<0?'bad':(mg<0.5||so.npsha<1.2*nr)?'warn':'ok';
+      let rb=''; if (qbep){ const r=qop/qbep; rb = `<li class="${r<0.7||r>1.2?'warn':'ok'}">Q operación = ${fmt(r*100,0)} % del Q del mejor rendimiento (BEP ≈ ${fmt(qbep,1)} m³/h). Zona recomendada: 70–120 %.</li>`; }
+      opHTML = `<div class="kpis">
+        <div class="kpi"><div class="l">Caudal de operación</div><div class="v">${fmt(qop,1)} <span class="u">m³/h</span></div></div>
+        <div class="kpi"><div class="l">Altura de operación</div><div class="v">${fmt(hop,1)} <span class="u">m</span></div></div>
+        <div class="kpi"><div class="l">Rendimiento ${fE?'(curva)':'(ingresado)'}</div><div class="v">${fmt(eop*100,1)} <span class="u">%</span></div></div>
+        <div class="kpi"><div class="l">Potencia al eje</div><div class="v">${fmt(pe,2)} <span class="u">kW</span></div></div>
+        <div class="kpi"><div class="l">Motor con margen</div><div class="v">${motorNormalizado(pm)?fmt(motorNormalizado(pm),motorNormalizado(pm)<1?2:(Number.isInteger(motorNormalizado(pm))?0:1)):'—'} <span class="u">kW</span></div></div>
+        <div class="kpi ${cm}"><div class="l">NPSHa − NPSHr (${fmt(so.npsha,1)} − ${fmt(nr,1)})</div><div class="v">${fmt(mg,2)} <span class="u">m</span></div></div></div>
+        <ul class="alerts">${rb}${Math.abs(qop-Q)/Q>0.1?`<li class="info">La bomba entrega ${fmt(qop,1)} m³/h, ${qop>Q?'más':'menos'} que los ${fmt(Q,1)} m³/h de diseño. ${qop>Q?'Se puede estrangular la válvula de descarga o recortar el rodete.':'Verificá si esa bomba cubre la demanda.'}</li>`:`<li class="ok">La bomba opera cerca del caudal de diseño.</li>`}</ul>`;
+    }
+  }
+  $('opBox').innerHTML = opHTML || '<span class="note">Cargá al menos 2 puntos H–Q de la bomba para ver el punto de operación.</span>';
+
+  // ---- desglose
+  const row=(n,v)=>`<tr><td>${n}</td><td>${fmt(v,2)} m</td></tr>`;
+  $('desglose').innerHTML = `<table><tr><th>Componente de la altura</th><th>Valor</th></tr>
+    ${row(`Altura estática (Hr ${S.pos==='aspiracion'?'+':'−'} Hs)`,D.zest)}
+    ${row('Diferencia de presión (P₂−P₁)/ρg',D.hp)}
+    ${row('Altura de velocidad en la salida',D.hc)}
+    ${row('Fricción en la succión',D.s.hf)}
+    ${row('Accesorios en la succión',D.s.hl)}
+    ${row('Fricción en la descarga',D.d.hf)}
+    ${row('Accesorios en la descarga',D.d.hl)}
+    <tr class="tot"><td>TDH total</td><td>${fmt(D.H,2)} m</td></tr></table>`;
+  const tr=(n,t,tt)=>`<tr><td>${n}</td><td>${fmt(t.V,2)}</td><td>${fmt(t.Re,0)}</td><td>${fmt(t.rr*1000,3)}</td><td>${fmt(t.f,4)}</td><td>${fmt(tt.K,2)}</td></tr>`;
+  $('tramos').innerHTML = `<table><tr><th>Tramo</th><th>V (m/s)</th><th>Re</th><th>ε/D ×10⁻³</th><th>f</th><th>ΣK</th></tr>${tr('Succión',D.s,S.suc)}${tr('Descarga',D.d,S.des)}</table>`;
+
+  // ---- gráficos
+  const qmax = Math.max(Q*1.6, fH?qb*1.05:0, 1);
+  const sysPts=[], npPts=[];
+  for (let i=0;i<=80;i++){ const q=qmax*i/80, r=sistema(q,S); sysPts.push({x:q,y:r.H}); npPts.push({x:q,y:r.npsha}); }
+  const pumpLine=[]; if (fH) for (let i=0;i<=80;i++){ const q=qa+(qb-qa)*i/80; pumpLine.push({x:q,y:polyval(fH,q)}); }
+  const pumpDots = P.map(r=>({x:r.q,y:r.h}));
+  const nrLine=[]; if (fN) for (let i=0;i<=80;i++){ const q=qa+(qb-qa)*i/80; nrLine.push({x:q,y:polyval(fN,q)}); } else nrLine.push({x:0,y:npshrM},{x:qmax,y:npshrM});
+  const nrDots = P.filter(r=>r.n!==null).map(r=>({x:r.q,y:r.n}));
+  drawCharts(sysPts,pumpLine,pumpDots,{x:Q,y:D.H},op?{x:op.qop,y:op.hop}:null,npPts,nrLine,nrDots,{x:Q,y:D.npsha},fN?'NPSHr (ajuste)':'NPSHr (valor ingresado)');
+}
+
+function drawCharts(sys,pump,dots,dis,op,np,nr,nrd,npDis,nrName){
+  Chart.defaults.color = '#9a9cc0'; Chart.defaults.borderColor = '#34346a';
+  const opt = (xt,yt)=>({responsive:true,maintainAspectRatio:false,animation:false,
+    scales:{x:{type:'linear',title:{display:true,text:xt},min:0},y:{title:{display:true,text:yt},min:0}},
+    plugins:{legend:{labels:{boxWidth:14}}}});
+  const ln=(label,data,color,extra={})=>Object.assign({label,data,borderColor:color,backgroundColor:color,showLine:true,pointRadius:0,borderWidth:2.5,tension:0.2},extra);
+  const pt=(label,data,color,r,st='circle')=>({label,data:data?[data]:[],borderColor:'#12122a',backgroundColor:color,showLine:false,pointRadius:r,pointStyle:st,borderWidth:2});
+  const dH = [ ln('Curva del sistema',sys,'#9b8afb'), ln('Curva de la bomba (ajuste)',pump,'#35c2c9'),
+    {label:'Datos de la bomba',data:dots,showLine:false,pointRadius:4,backgroundColor:'#35c2c9',borderColor:'#35c2c9'},
+    pt('Punto de diseño',dis,'#ff7ab6',8,'rectRot'), pt('Punto de operación',op,'#f0b24a',9) ];
+  const dN = [ ln('NPSH disponible',np,'#2fbf8f'), ln(nrName,nr,'#ef5f6b',{borderDash:[6,4]}),
+    {label:'NPSHr datos',data:nrd,showLine:false,pointRadius:4,backgroundColor:'#ef5f6b',borderColor:'#ef5f6b'},
+    pt('NPSHa en diseño',npDis,'#ff7ab6',8,'rectRot') ];
+  if (chH){ chH.data.datasets=dH; chH.update(); } else chH=new Chart($('chH'),{type:'scatter',data:{datasets:dH},options:opt('Caudal Q (m³/h)','Altura H (m)')});
+  if (chN){ chN.data.datasets=dN; chN.update(); } else chN=new Chart($('chN'),{type:'scatter',data:{datasets:dN},options:opt('Caudal Q (m³/h)','NPSH (m)')});
+}
+
+// ---------------------------- inicio ----------------------------
+$('cardS').innerHTML = tramoCard('s','2 · Tramo de succión');
+$('cardD').innerHTML = tramoCard('d','3 · Tramo de descarga');
+load(); renderAcc('s'); renderAcc('d'); renderPts();
+
+IDS.forEach(id=>{ const e=$(id); e.addEventListener('input',run); e.addEventListener('change',run); });
+document.querySelectorAll('[data-addacc]').forEach(b=>b.addEventListener('click',()=>{
+  const p=b.dataset.addacc; acc[p].push({n:"Codo 90° radio normal (bridado)",K:0.30,c:1}); renderAcc(p); run();
+}));
+$('ptAdd').addEventListener('click',()=>{ pts.push(['','','','']); renderPts(); });
+$('ptEj').addEventListener('click',()=>{ pts=JSON.parse(JSON.stringify(DEFAULT.pts)); renderPts(); run(); });
+$('ptClr').addEventListener('click',()=>{ pts=[]; renderPts(); run(); });
+$('ptPasteBtn').addEventListener('click',()=>{
+  const rows = $('ptPaste').value.split(/\r?\n/).map(l=>l.trim()).filter(Boolean)
+    .map(l=>l.split(/[\t;]+|\s{1,}/).map(s=>s.trim()).filter(s=>s!=='')).filter(c=>c.length>=2 && !isNaN(num(c[0])) && !isNaN(num(c[1])))
+    .map(c=>[c[0],c[1],c[2]||'',c[3]||'']);
+  if (rows.length){ pts=rows; renderPts(); run(); }
+});
+$('btnPrint').addEventListener('click',()=>window.print());
+$('btnReset').addEventListener('click',()=>{
+  acc=JSON.parse(JSON.stringify(DEFAULT.acc)); pts=JSON.parse(JSON.stringify(DEFAULT.pts));
+  applyVals(DEFAULT.vals); renderAcc('s'); renderAcc('d'); renderPts(); run();
+});
+run();
+</script>
+</body>
+</html>
