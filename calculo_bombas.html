@@ -59,15 +59,29 @@ th{color:var(--mut);font-weight:600}
 tr.tot td{font-weight:700;color:var(--vio2);border-top:2px solid var(--vio)}
 .chartbox{position:relative;height:340px}
 svg.esq{width:100%;height:auto;background:#15152f;border-radius:12px;border:1px solid var(--line)}
-.esq .pipe{stroke:var(--vio2);stroke-width:6;fill:none;stroke-linejoin:round}
-.esq .dim{stroke:var(--warn);stroke-width:1.5;fill:none}
+.esq .pO{stroke:#9b8afb;stroke-width:11;fill:none;stroke-linejoin:round}
+.esq .pI{stroke:#2b93a8;stroke-width:6;fill:none;stroke-linejoin:round}
+.esq .body{fill:var(--card2);stroke:var(--vio2);stroke-width:2;stroke-linejoin:round}
+.esq .fl{fill:#9b8afb;stroke:none}
+.esq .vb{fill:var(--card2);stroke:var(--vio2);stroke-width:2}
+.esq .vs{stroke:var(--vio2);stroke-width:2;fill:none}
+.esq .fin{stroke:#6c5dd3;stroke-width:2;fill:none}
+.esq .tank{fill:none;stroke:#8a8cb5;stroke-width:4;stroke-linejoin:round}
+.esq .vessel{fill:rgba(154,156,192,.10);stroke:#8a8cb5;stroke-width:4}
+.esq .liq{fill:rgba(53,194,201,.28);stroke:none}
+.esq .wave{fill:none;stroke:var(--teal);stroke-width:2}
+.esq .lvl{fill:none;stroke:var(--teal);stroke-width:1.6}
+.esq .jet{stroke:var(--teal);stroke-width:4;stroke-dasharray:7 5;fill:none;opacity:.85}
+.esq .floor{stroke:var(--mut);stroke-width:2.5;fill:none}
+.esq .hatch{stroke:var(--mut);stroke-width:1.2;fill:none;opacity:.6}
+.esq .axis{stroke:var(--mut);stroke-width:1;stroke-dasharray:12 3 2 3;fill:none;opacity:.7}
+.esq .dim{stroke:var(--warn);stroke-width:1.6;fill:none}
 .esq .ref{stroke:var(--mut);stroke-width:1;stroke-dasharray:4 4;fill:none}
-.esq .body{fill:var(--card2);stroke:var(--vio2);stroke-width:2}
-.esq .liq{fill:rgba(53,194,201,.28);stroke:var(--teal);stroke-width:2}
-.esq .tank{fill:none;stroke:var(--mut);stroke-width:3}
-.esq text{fill:var(--txt);font-size:13px;font-family:inherit}
-.esq text.d{fill:var(--warn);font-weight:700}
-.esq text.m{fill:var(--mut);font-size:12px}
+.esq .arw{fill:#e8e9f5}
+.esq text{fill:var(--txt);font-size:14px;font-family:inherit}
+.esq text.d{fill:var(--warn);font-weight:700;font-size:15px}
+.esq text.m{fill:var(--mut);font-size:13px}
+.esq text.vl{fill:var(--mut);font-size:12px}
 details{margin-top:6px} summary{cursor:pointer;color:var(--vio2);font-weight:600}
 .note{color:var(--mut);font-size:12px}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--mut)}
@@ -78,6 +92,9 @@ details{margin-top:6px} summary{cursor:pointer;color:var(--vio2);font-weight:600
   .grid{grid-template-columns:1fr}
   .kpi .v,.card h2,th,.note{color:#000!important}
   .esq text{fill:#000}
+  .esq text.m,.esq text.vl{fill:#333}
+  .esq .body,.esq .vb{fill:#f1f1f6}
+  .esq .vessel{fill:#f4f4f8}
 }
 </style>
 </head>
@@ -113,10 +130,11 @@ details{margin-top:6px} summary{cursor:pointer;color:var(--vio2);font-weight:600
     <div class="f"><label>Posición de la bomba</label>
       <select id="pos"><option value="aspiracion">Sobre el nivel (aspiración)</option><option value="inundada">Bajo el nivel (inundada)</option></select></div>
     <div class="f"><label>Hs · desnivel eje de bomba ↔ nivel del líquido<small>m (valor positivo)</small></label><input type="number" step="any" min="0" id="hs"></div>
-    <div class="f"><label>Hr · elevación del punto de descarga sobre el eje<small>m (si descarga a tanque: nivel del líquido)</small></label><input type="number" step="any" id="zd"></div>
+    <div class="f"><label>Hr · elevación del punto de descarga sobre el eje<small>m · al aire: boca del tubo · sumergida: nivel del líquido del tanque · red: punto de conexión</small></label><input type="number" step="any" id="zd"></div>
     <div class="f"><label>Presión sobre el líquido de succión<small>kPa manométricos (0 = abierto)</small></label><input type="number" step="any" id="p1"></div>
     <div class="f"><label>Presión en el destino<small>kPa manométricos (0 = abierto)</small></label><input type="number" step="any" id="p2"></div>
-    <div class="chk"><input type="checkbox" id="libre"><label for="libre">Descarga libre al aire (suma la altura de velocidad V²/2g)</label></div>
+    <div class="f"><label>Tipo de descarga<small>define el dibujo y la pérdida de salida</small></label>
+      <select id="desc"><option value="aire">Libre al aire</option><option value="sumergida">Sumergida (tanque)</option><option value="red">A red a presión</option></select></div>
   </div>
 
   <div class="card" id="cardS"></div>
@@ -184,7 +202,7 @@ details{margin-top:6px} summary{cursor:pointer;color:var(--vio2);font-weight:600
     <h2>Método de cálculo</h2>
     <details open><summary>Ecuaciones usadas</summary>
     <p class="mono">Bernoulli entre la superficie de succión (1, V≈0) y el punto de descarga (2):<br>
-    H(Q) = (z₂−z₁) + (P₂−P₁)/(ρg) + V₂²/2g [si descarga libre] + Σhf + Σhloc<br><br>
+    H(Q) = (z₂−z₁) + (P₂−P₁)/(ρg) + V₂²/2g [descarga libre o sumergida; no se suma si va a red] + Σhf + Σhloc<br><br>
     Darcy-Weisbach: hf = f · (L/D) · V²/2g<br>
     Re = ρVD/μ · laminar (Re&lt;2300): f = 64/Re · turbulento: Colebrook-White<br>
     1/√f = −2 log₁₀( (ε/D)/3,7 + 2,51/(Re√f) ) (iterado hasta converger)<br>
@@ -245,7 +263,7 @@ function sistema(Qh, S){
   const zsig = lift ? S.Hs : -S.Hs;                 // desnivel del líquido bajo (+) / sobre (−) el eje
   const zest = S.zd + zsig;                          // altura estática total
   const hp   = (S.P2 - S.P1)*1000/(S.fl.rho*G);      // término de presión
-  const hc   = S.libre ? d.hv : 0;                   // altura de velocidad a la salida
+  const hc   = S.desc==='red' ? 0 : d.hv;            // salida libre o sumergida (K=1): se pierde V²/2g
   const H    = zest + hp + hc + s.hf + s.hl + d.hf + d.hl;
   const npsha = (S.patm + S.P1)*1000/(S.fl.rho*G) - zsig - s.hf - s.hl - S.fl.pv*1000/(S.fl.rho*G);
   return {H, npsha, s, d, zest, hp, hc, zsig};
@@ -303,13 +321,13 @@ const ACC = [
   ["Te, paso directo",0.20],["Te, derivación",1.00],
   ["Válvula de compuerta (abierta)",0.20],["Válvula esférica (abierta)",0.05],["Válvula mariposa (abierta)",0.50],
   ["Válvula globo (abierta)",10.0],["Válvula de retención a clapeta",2.0],
-  ["Reducción concéntrica gradual",0.10],["Salida a tanque (sumergida)",1.0],["Otro (K manual)",1.0]
+  ["Reducción concéntrica gradual",0.10],["Otro (K manual)",1.0]
 ];
-const IDS = ['q','temp','manual','rho','mu','pv','alt','pos','hs','zd','p1','p2','libre',
+const IDS = ['q','temp','manual','rho','mu','pv','alt','pos','hs','zd','p1','p2','desc',
   's_mat','s_eps','s_dn','s_dint','s_L','d_mat','d_eps','d_dn','d_dint','d_L','eta','npshr','margen','grado'];
 
 const DEFAULT = {
-  vals:{q:30,temp:30,manual:false,alt:0,pos:'aspiracion',hs:2,zd:18,p1:0,p2:0,libre:true,
+  vals:{q:30,temp:30,manual:false,alt:0,pos:'aspiracion',hs:2,zd:18,p1:0,p2:0,desc:'aire',
     s_mat:0,s_eps:0.1,s_dn:6,s_dint:100,s_L:8,d_mat:0,d_eps:0.1,d_dn:5,d_dint:80,d_L:67,
     eta:70,npshr:3.2,margen:15,grado:2},
   acc:{
@@ -392,7 +410,11 @@ function applyVals(vals){
 function load(){
   let st=null;
   try{ st=JSON.parse(localStorage.getItem(KEY)); }catch(e){}
-  if (st && st.vals){ applyVals(st.vals); acc=st.acc||acc; pts=st.pts||pts; }
+  if (st && st.vals){
+    applyVals(st.vals); acc=st.acc||acc; pts=st.pts||pts;
+    if (!('desc' in st.vals)) $('desc').value = (st.vals.libre===false) ? 'red' : 'aire';   // estado guardado por la versión anterior
+    ['s','d'].forEach(p=>{ const n0=acc[p].length; acc[p]=acc[p].filter(a=>a.n!=='Salida a tanque (sumergida)'); if (p==='d' && acc[p].length<n0) $('desc').value='sumergida'; });
+  }
   else applyVals(DEFAULT.vals);
 }
 
@@ -421,49 +443,126 @@ function updFluido(){
 function getS(){
   const fl = {rho:num(val('rho')), mu:num(val('mu'))/1000, pv:num(val('pv'))};
   return { fl, patm:patmKPa(num(val('alt'))), pos:val('pos'), Hs:Math.abs(num(val('hs'))), zd:num(val('zd')),
-    P1:num(val('p1')), P2:num(val('p2')), libre:val('libre'), suc:getTramo('s'), des:getTramo('d') };
+    P1:num(val('p1')), P2:num(val('p2')), desc:val('desc'), suc:getTramo('s'), des:getTramo('d') };
 }
 
 // ---------------------------- esquema ----------------------------
 function esquema(S){
-  const lift = S.pos==='aspiracion', y0=250;
-  const pxH = Math.min(80, 30+22*Math.sqrt(S.Hs));
-  const pxR = Math.min(150, 34+16*Math.sqrt(Math.abs(S.zd)));
+  const lift = S.pos==='aspiracion', desc = S.desc;
+  const y0=290, cx=400, floor=y0+52;
+  const pxH = Math.min(88, 34+24*Math.sqrt(Math.max(S.Hs,0)));
+  const pxR = Math.min(170, Math.max(100, 70+22*Math.sqrt(Math.abs(S.zd))));
   const yLiq = lift ? y0+pxH : y0-pxH;
-  const tTop = yLiq-25, tBot = lift ? yLiq+45 : y0+30;
-  const yTop = S.zd>=0 ? y0-24-pxR : y0-24+pxR*0.6;
-  let suc;
-  if (lift) suc = `<path class="pipe" d="M125 ${yLiq+32} L125 ${y0} L336 ${y0}"/><rect x="113" y="${yLiq+30}" width="24" height="12" rx="3" class="body"/>`;
-  else      suc = `<path class="pipe" d="M190 ${y0} L336 ${y0}"/>`;
-  const liq = `<rect class="liq" x="60" y="${yLiq}" width="130" height="${tBot-yLiq}"/>`;
-  const tank = `<path class="tank" d="M60 ${tTop} L60 ${tBot} L190 ${tBot} L190 ${tTop}"/>`;
-  const dnS = S.suc.nom, dnD = S.des.nom;
-  const hsLbl = `Hs = ${fmt(S.Hs,1)} m`, hrLbl = `Hr = ${fmt(S.zd,1)} m`;
-  return `<svg class="esq" viewBox="0 0 800 400" xmlns="http://www.w3.org/2000/svg">
-  <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f0b24a"/></marker>
-  <marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#9b8afb"/></marker></defs>
-  ${liq}${tank}
-  <text class="m" x="125" y="${tTop-8}" text-anchor="middle">Tanque de succión</text>
-  ${suc}
-  <path class="ref" d="M200 ${y0} L650 ${y0}"/>
-  <path class="ref" d="M190 ${yLiq} L232 ${yLiq}"/>
-  <path class="dim" marker-start="url(#ar)" marker-end="url(#ar)" d="M222 ${y0} L222 ${yLiq}"/>
-  <text class="d" x="232" y="${(y0+yLiq)/2+4}">${hsLbl}</text>
-  <path class="body" d="M330 ${y0+24} L490 ${y0+24} L490 ${y0+36} L330 ${y0+36} z"/>
-  <rect class="body" x="384" y="${y0-18}" width="86" height="36" rx="6"/>
-  <path d="M396 ${y0-18} v36 M410 ${y0-18} v36 M424 ${y0-18} v36 M438 ${y0-18} v36 M452 ${y0-18} v36" stroke="#9b8afb" stroke-width="1"/>
-  <circle class="body" cx="360" cy="${y0}" r="25"/>
-  <text x="360" y="${y0+5}" text-anchor="middle" style="font-weight:700">B</text>
-  <text class="m" x="430" y="${y0+54}" text-anchor="middle">Bomba + motor</text>
-  <path class="pipe" d="M360 ${y0-25} L360 ${yTop} L610 ${yTop}" marker-end="url(#ar2)"/>
-  <path class="ref" d="M610 ${yTop} L655 ${yTop}"/>
-  <path class="dim" marker-start="url(#ar)" marker-end="url(#ar)" d="M648 ${y0} L648 ${yTop}"/>
-  <text class="d" x="656" y="${(y0+yTop)/2+4}">${hrLbl}</text>
-  <text class="m" x="${lift?326:198}" y="${lift?y0-34:y0+54}" text-anchor="${lift?'end':'start'}">Succión · Ls = ${fmt(S.suc.L,0)} m · ${dnS}</text>
-  <text class="m" x="380" y="${yTop-12}">Descarga · Lr = ${fmt(S.des.L,0)} m · ${dnD}</text>
-  <text class="m" x="20" y="392">${lift?'Bomba sobre el nivel (aspiración): Hs resta NPSH y suma altura':'Bomba bajo el nivel (inundada): Hs suma NPSH y resta altura'}</text>
-  <text class="m" x="400" y="${yTop+30}">${S.libre?'↓ descarga libre':'↓ descarga a tanque/presión'}</text>
-  </svg>`;
+  const tx1=40, tx2=190, tcx=168;
+  const tTop = lift ? Math.min(floor, yLiq-30) : yLiq-34;
+  const tBot = lift ? yLiq+52 : floor;
+  const yTop = y0-34-pxR;
+  const dx1=655, dx2=890, xo=735, xH=624, xN=cx-48;
+
+  const pipe = d => `<path class="pO" d="${d}"/><path class="pI" d="${d}"/>`;
+  const wave = (x1,x2,y)=>{ let d=`M${x1} ${y}`; const n=Math.floor((x2-x1)/20); for(let i=0;i<n;i++) d+=' q5 -4 10 0 q5 4 10 0'; return `<path class="wave" d="${d}"/>`; };
+  const lvl  = (x,y)=>`<path class="lvl" d="M${x-8} ${y-14} L${x+8} ${y-14} L${x} ${y} Z M${x-10} ${y+4} h20 M${x-6} ${y+8} h12"/>`;
+  const dim  = (x,ya,yb)=>`<path class="dim" marker-start="url(#ar)" marker-end="url(#ar)" d="M${x} ${ya} V${yb}"/>`;
+  const aR   = (x,y)=>`<path class="arw" d="M${x-5} ${y-5} L${x+5} ${y} L${x-5} ${y+5} Z"/>`;
+  const aU   = (x,y)=>`<path class="arw" d="M${x-5} ${y+5} L${x+5} ${y+5} L${x} ${y-5} Z"/>`;
+  const hatch= (a,b)=>{ let d=''; for(let x=a+2;x<b-10;x+=14) d+=`M${x+10} ${floor} l-8 10 `; return `<path class="floor" d="M${a} ${floor} H${b}"/><path class="hatch" d="${d}"/>`; };
+  const legs = (xa,xb,yb)=> yb<floor-2 ? `<rect class="body" x="${xa}" y="${yb}" width="6" height="${floor-yb}"/><rect class="body" x="${xb-6}" y="${yb}" width="6" height="${floor-yb}"/>` : '';
+  const vlv  = (x,y,t,lbl)=> t==='chk'
+    ? `<circle class="vb" cx="${x}" cy="${y}" r="10"/><path class="vs" d="M${x-6} ${y+5} L${x+6} ${y-5}"/><text class="vl" x="${x}" y="${y-16}" text-anchor="middle">${lbl}</text>`
+    : `<path class="vb" d="M${x-12} ${y-9} L${x-12} ${y+9} L${x} ${y} L${x+12} ${y-9} L${x+12} ${y+9} L${x} ${y} Z"/><path class="vs" d="M${x} ${y} V${y-17} M${x-7} ${y-17} h14"/><text class="vl" x="${x}" y="${y-24}" text-anchor="middle">${lbl}</text>`;
+
+  // geometría del destino
+  let yRim=0,yLiqD=0,dBot=0,yOut=0,yHr=yTop;
+  if(desc==='aire'){ yRim=yTop+32; yOut=yTop+40; yLiqD=yTop+92; dBot=yTop+130; yHr=yOut; }
+  else if(desc==='sumergida'){ yRim=yTop+32; yLiqD=yTop+62; dBot=yTop+130; yHr=yLiqD; }
+  else { dBot=yTop+110; yHr=yTop; }
+
+  let s='';
+  // piso y eje de la bomba
+  s += lift ? hatch(0,tx1)+hatch(tx2,920) : hatch(0,920);
+  s += `<path class="axis" d="M200 ${y0} H${desc==='red'?690:640}"/>`;
+
+  // tanque de succión
+  s += `<rect class="liq" x="${tx1+2}" y="${yLiq}" width="${tx2-tx1-4}" height="${tBot-yLiq-2}"/>${wave(tx1+2,tx2-2,yLiq)}${lvl(tx1+26,yLiq)}`;
+  s += `<path class="tank" d="M${tx1} ${tTop} V${tBot} H${tx2} V${tTop}"/>`;
+  s += `<text class="m" x="${tx1+4}" y="${tTop-10}">Tanque de succión</text>`;
+
+  // tanque o recipiente de destino
+  if(desc==='aire' || desc==='sumergida'){
+    s += legs(dx1+10,dx2-10,dBot);
+    s += `<rect class="liq" x="${dx1+2}" y="${yLiqD}" width="${dx2-dx1-4}" height="${dBot-yLiqD-2}"/>${wave(dx1+2,dx2-2,yLiqD)}${lvl(dx2-30,yLiqD)}`;
+    s += `<path class="tank" d="M${dx1} ${yRim} V${dBot} H${dx2} V${yRim}"/>`;
+    s += `<text class="m" x="815" y="${yRim-10}" text-anchor="middle">Tanque de destino</text>`;
+  } else {
+    s += legs(710,870,dBot);
+    s += `<rect class="vessel" x="700" y="${yTop-40}" width="180" height="150" rx="22"/>`;
+    s += `<text class="m" x="790" y="${yTop+36}" text-anchor="middle">Red / recipiente</text><text class="m" x="790" y="${yTop+54}" text-anchor="middle">a presión</text>`;
+    s += `<path class="vs" d="M790 ${yTop-40} V${yTop-52}"/><circle class="vb" cx="790" cy="${yTop-64}" r="12"/><path class="vs" d="M790 ${yTop-64} l5 -6"/>`;
+    s += `<text class="m" x="808" y="${yTop-60}">P₂ = ${fmt(S.P2,0)} kPa</text>`;
+  }
+
+  // cañerías
+  const footValve = acc.s.some(a=>/pie/i.test(a.n) && a.c>0);
+  const sucPath = lift ? `M${tcx} ${yLiq+(footValve?30:40)} V${y0} H${xN}` : `M${tx2} ${y0} H${xN}`;
+  const dPath = desc==='aire' ? `M${cx} ${y0-53} V${yTop} H${xo} V${yOut}`
+              : desc==='sumergida' ? `M${cx} ${y0-53} V${yTop} H${xo} V${yLiqD+34}`
+              : `M${cx} ${y0-53} V${yTop} H700`;
+  s += pipe(sucPath) + pipe(dPath);
+  if(lift && footValve) s += `<rect class="vb" x="${tcx-13}" y="${yLiq+28}" width="26" height="18" rx="3"/><path class="vs" d="M${tcx-6} ${yLiq+32} v10 M${tcx} ${yLiq+32} v10 M${tcx+6} ${yLiq+32} v10"/>`;
+  if(!lift) s += `<rect class="fl" x="${tx2-3}" y="${y0-15}" width="6" height="30"/>`;
+  if(desc==='aire'){
+    s += `<rect class="fl" x="${xo-9}" y="${yOut-2}" width="18" height="4"/>`;
+    s += `<path class="jet" d="M${xo} ${yOut+6} V${yLiqD}"/><path class="wave" d="M${xo-14} ${yLiqD} q4 -8 7 0 M${xo+7} ${yLiqD} q4 -8 7 0"/>`;
+  }
+  if(desc==='red') s += `<rect class="fl" x="696" y="${yTop-15}" width="5" height="30"/>`;
+
+  // válvulas de la descarga (según los accesorios cargados)
+  const vv=[]; acc.d.forEach(a=>{ if(!(a.c>0)) return; const n=a.n;
+    if(/retenci/i.test(n)) vv.push(['chk','Retención']);
+    else if(/compuerta/i.test(n)) vv.push(['vlv','Compuerta']);
+    else if(/esf/i.test(n)) vv.push(['vlv','Esférica']);
+    else if(/mariposa/i.test(n)) vv.push(['vlv','Mariposa']);
+    else if(/globo/i.test(n)) vv.push(['vlv','Globo']); });
+  vv.slice(0,3).forEach((v,i)=>{ s += vlv(cx+55+i*60,yTop,v[0],v[1]); });
+
+  // flechas de sentido de flujo
+  s += aR(300,y0) + aU(cx,Math.round((y0-53+yTop)/2)) + aR(cx+28,yTop);
+
+  // bomba y motor
+  s += `<rect class="body" x="${cx-56}" y="${y0+40}" width="246" height="12" rx="2"/>`;
+  s += `<path class="body" d="M${cx-28} ${y0+28} H${cx+28} L${cx+38} ${y0+40} H${cx-38} Z"/>`;
+  s += `<rect class="body" x="${cx+76}" y="${y0+32}" width="84" height="8"/>`;
+  s += `<rect class="body" x="${cx+34}" y="${y0-9}" width="30" height="18"/>`;
+  s += `<rect class="body" x="${cx+62}" y="${y0-32}" width="112" height="64" rx="8"/>`;
+  for(let i=0;i<9;i++) s += `<path class="fin" d="M${cx+72+i*11} ${y0-26} V${y0+26}"/>`;
+  s += `<rect class="body" x="${cx+174}" y="${y0-22}" width="14" height="44" rx="4"/>`;
+  s += `<rect class="body" x="${cx+108}" y="${y0-40}" width="26" height="9" rx="2"/>`;
+  s += `<rect class="body" x="${cx-44}" y="${y0-10}" width="12" height="20"/><rect class="fl" x="${cx-49}" y="${y0-15}" width="5" height="30"/>`;
+  s += `<rect class="body" x="${cx-10}" y="${y0-48}" width="20" height="18"/><rect class="fl" x="${cx-15}" y="${y0-53}" width="30" height="5"/>`;
+  s += `<circle class="body" cx="${cx}" cy="${y0}" r="34"/><circle class="body" cx="${cx}" cy="${y0}" r="13"/>`;
+  for(let k=0;k<6;k++){ const a=k*Math.PI/3; s += `<path class="fin" d="M${cx} ${y0} L${(cx+11*Math.cos(a)).toFixed(1)} ${(y0+11*Math.sin(a)).toFixed(1)}"/>`; }
+  s += `<text class="m" x="${cx+70}" y="${floor+34}" text-anchor="middle">Bomba centrífuga + motor</text>`;
+
+  // cotas
+  s += `<path class="ref" d="M${tx2} ${yLiq} H250"/>${dim(236,y0,yLiq)}`;
+  s += `<text class="d" x="246" y="${(y0+yLiq)/2+5}">Hs = ${fmt(S.Hs,1)} m</text>`;
+  s += `<path class="ref" d="M${xH-14} ${yHr} H${desc==='red'?700:dx1}"/>${dim(xH,y0,yHr)}`;
+  const hy = Math.min((y0+yHr)/2+5, y0-70);   // evita que el texto se superponga con el motor
+  s += `<text class="d" x="${xH-10}" y="${hy}" text-anchor="end">Hr = ${fmt(S.zd,1)} m${S.zd<0?' *':''}</text>`;
+  if(desc==='sumergida') s += `<text class="vl" x="${xH-10}" y="${hy+17}" text-anchor="end">hasta el nivel del tanque</text>`;
+  if(desc==='aire') s += `<text class="vl" x="${xH-10}" y="${hy+17}" text-anchor="end">hasta la boca del tubo</text>`;
+
+  // textos
+  s += `<text class="m" x="200" y="${lift?y0-22:y0+34}">Succión · Ls = ${fmt(S.suc.L,0)} m · ${S.suc.nom}</text>`;
+  s += `<text class="m" x="${cx+14}" y="${yTop+34}">Descarga · Lr = ${fmt(S.des.L,0)} m · ${S.des.nom}</text>`;
+  const c1 = lift ? 'Bomba sobre el nivel (aspiración): Hs resta NPSH y suma altura estática.' : 'Bomba bajo el nivel (inundada): Hs suma NPSH y resta altura estática.';
+  const c2 = desc==='aire' ? 'Descarga libre al aire: Hr hasta la boca del tubo; se suma la altura de velocidad V²/2g.'
+           : desc==='sumergida' ? 'Descarga sumergida: Hr hasta el nivel del líquido del tanque; pérdida de salida con K = 1.'
+           : 'Descarga a red o recipiente a presión: se usa la presión P₂ ingresada; sin pérdida de salida.';
+  s += `<text class="m" x="20" y="460">${c1}${S.zd<0?'   * Hr negativo: descarga bajo el eje (sin escala)':''}</text><text class="m" x="20" y="477">${c2}</text>`;
+
+  return `<svg class="esq" viewBox="0 0 920 480" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f0b24a"/></marker></defs>${s}</svg>`;
 }
 
 // ---------------------------- cálculo principal ----------------------------
@@ -567,7 +666,7 @@ function run(){
   $('desglose').innerHTML = `<table><tr><th>Componente de la altura</th><th>Valor</th></tr>
     ${row(`Altura estática (Hr ${S.pos==='aspiracion'?'+':'−'} Hs)`,D.zest)}
     ${row('Diferencia de presión (P₂−P₁)/ρg',D.hp)}
-    ${row('Altura de velocidad en la salida',D.hc)}
+    ${row(S.desc==='sumergida'?'Pérdida de salida al tanque sumergido (K = 1)':S.desc==='red'?'Salida a red (no suma altura de velocidad)':'Altura de velocidad en la salida (descarga libre)',D.hc)}
     ${row('Fricción en la succión',D.s.hf)}
     ${row('Accesorios en la succión',D.s.hl)}
     ${row('Fricción en la descarga',D.d.hf)}
