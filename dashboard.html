@@ -52,6 +52,12 @@
   .callout-hoy .callout-label{font-size:.85rem;color:var(--steel-400);margin-bottom:.4rem;}
   .callout-hoy .callout-valor{font-family:var(--font-mono);font-size:2.4rem;font-weight:700;color:var(--amber-500);line-height:1.1;}
   .callout-hoy .callout-sub{font-size:.82rem;color:var(--steel-400);margin-top:.5rem;}
+  /* Tarjetas de bagazo: 3 columnas iguales; arriba lo semanal, abajo lo mensual, y la azúcar perdida ocupa las dos filas. */
+  .grid-bagazo{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;}
+  .grid-bagazo .kpi-tile{margin:0;}
+  .grid-bagazo .tile-perdida{grid-column:3;grid-row:1 / span 2;display:flex;flex-direction:column;justify-content:center;}
+  @media (max-width:900px){.grid-bagazo{grid-template-columns:1fr 1fr;}.grid-bagazo .tile-perdida{grid-column:1 / -1;grid-row:auto;order:-1;}}
+  @media (max-width:560px){.grid-bagazo{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -177,7 +183,7 @@
       </div>
     </div>
 
-    <div class="grid-2">
+    <div class="grid-bagazo">
       <div class="plate kpi-tile">
         <div class="kpi-label">Bagazo-Pol promedio (última semana)</div>
         <div class="kpi-value" id="kpi-bagazo-pol-prom">—</div>
@@ -188,9 +194,11 @@
         <div class="kpi-value" id="kpi-bagazo-hum-prom">—</div>
         <div class="kpi-sub" id="kpi-bagazo-hum-prom-sub"></div>
       </div>
-    </div>
-
-    <div class="kpi-grid">
+      <div class="plate kpi-tile tile-perdida">
+        <div class="kpi-label">Azúcar perdida del mes</div>
+        <div class="kpi-value" id="kpi-azucar-perdida-mes">—</div>
+        <div class="kpi-sub" id="kpi-azucar-perdida-mes-sub"></div>
+      </div>
       <div class="plate kpi-tile">
         <div class="kpi-label">Bagazo-Pol promedio del mes</div>
         <div class="kpi-value" id="kpi-bagazo-pol-mes">—</div>
@@ -200,11 +208,6 @@
         <div class="kpi-label">Bagazo-Hum promedio del mes</div>
         <div class="kpi-value" id="kpi-bagazo-hum-mes">—</div>
         <div class="kpi-sub" id="kpi-bagazo-hum-mes-sub"></div>
-      </div>
-      <div class="plate kpi-tile">
-        <div class="kpi-label">Azúcar perdida del mes</div>
-        <div class="kpi-value" id="kpi-azucar-perdida-mes">—</div>
-        <div class="kpi-sub" id="kpi-azucar-perdida-mes-sub"></div>
       </div>
     </div>
 
