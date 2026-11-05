@@ -128,6 +128,8 @@
       <div class="panel-head"><h2>Objetivos del mes</h2></div>
       <p style="font-size:.8rem;color:var(--steel-400);margin:0 0 1rem;">
         Definí las metas del mes para comparar contra lo real en el Panel de control.
+        Si no cargás «Bagazo - Pol», se usa 3,5 % por defecto; cargá otro valor para cambiarlo en ese mes
+        (también cambia el cálculo de la azúcar perdida).
       </p>
       <div class="field" style="max-width:220px;">
         <label for="mes-objetivo">Mes</label>
@@ -252,7 +254,7 @@ const METRICAS = [
   {clave:"Bagazo Kgs",         unidad:"Kg", calculada:false},
   {clave:"Bagazo - Pol",       unidad:"%",  calculada:false},
   {clave:"Bagazo - Humedad",   unidad:"%",  calculada:false},
-  {clave:"Azúcar Perdida",     unidad:"Kg", calculada:true}, // = Bagazo Kgs x (Bagazo-Pol/100)
+  {clave:"Azúcar Perdida",     unidad:"Kg", calculada:true}, // = Bagazo Kgs x máx(0, Pol - objetivo de Pol) / 100
   {clave:"Azúcar Producida (Fábrica)", unidad:"Kg", calculada:false} // Hoja 2, tabla "PRODUCCIÓN TOT" → PRODUCIDA POR FÁBRICA, columna "Hoy"
 ];
 
@@ -449,22 +451,37 @@ document.getElementById("input-pdf-hoja2").addEventListener("change", async () =
   }
 });
 
+/* ---------- Objetivo de Pol de bagazo ---------- */
+/* Objetivo por defecto (%): el que se usa cuando el mes no tiene uno cargado en «Objetivos del mes».
+   Debe coincidir con OBJETIVO_POL_DEFECTO de dashboard.html. */
+const OBJETIVO_POL_DEFECTO = 3.5;
+function objetivoPolDe(fecha){
+  const mes = String(fecha || "").slice(0, 7);
+  const o = objetivosGuardados.find(x => x.Mes === mes && x.Metrica === "Bagazo - Pol");
+  const v = o ? normalizarNumero(o.Valor) : null;
+  return v != null ? v : OBJETIVO_POL_DEFECTO;
+}
+/* Azúcar perdida (Kg) = bagazo (Kg) × (Pol − objetivo) / 100; solo cuenta lo que excede el objetivo. */
+const azucarPerdidaKg = (kg, pol, fecha) => Math.max(0, Math.round(kg * (pol - objetivoPolDe(fecha))) / 100);
+/* (se redondea a 2 decimales para evitar ruido de coma flotante) */
+
 /* ---------- Tabla de revisión ---------- */
 /* Calcula la azúcar perdida a partir de dos strings crudos (no depende de que
    los inputs ya existan en el DOM — antes se leía siempre desde el DOM, y en
    la primera carga esos inputs todavía no existían, por eso quedaba vacío
    hasta la segunda carga). */
-function calcularAzucarPerdidaDesde(kgStr, polStr){
+function calcularAzucarPerdidaDesde(kgStr, polStr, fecha){
   const kg = normalizarNumero(kgStr);
   const pol = normalizarNumero(polStr);
   if(kg == null || pol == null) return "";
-  return (kg * (pol/100)).toLocaleString("es-AR", {maximumFractionDigits:2});
+  return azucarPerdidaKg(kg, pol, fecha).toLocaleString("es-AR", {maximumFractionDigits:2});
 }
 
 function calcularAzucarPerdida(){
   return calcularAzucarPerdidaDesde(
     document.getElementById("valor-bagazo-kgs")?.value,
-    document.getElementById("valor-bagazo-pol")?.value
+    document.getElementById("valor-bagazo-pol")?.value,
+    document.getElementById("fecha-parte").value
   );
 }
 
@@ -487,7 +504,7 @@ function pintarRevision(){
   tbody.innerHTML = METRICAS.map(m => {
     const idInput = idInputDe(m.clave);
     const valorExtraido = m.calculada
-      ? calcularAzucarPerdidaDesde(valores["Bagazo Kgs"], valores["Bagazo - Pol"])
+      ? calcularAzucarPerdidaDesde(valores["Bagazo Kgs"], valores["Bagazo - Pol"], document.getElementById("fecha-parte").value)
       : (valores[m.clave] || "");
     const encontrado = m.calculada ? valorExtraido !== "" : !!valorExtraido;
     return `
@@ -509,6 +526,8 @@ function pintarRevision(){
   [inputKg, inputPol].forEach(inp => inp && inp.addEventListener("input", () => {
     if(inputCalc) inputCalc.value = calcularAzucarPerdida();
   }));
+  const fp = document.getElementById("fecha-parte");
+  if(!fp._conAzucar){ fp._conAzucar = true; fp.addEventListener("change", () => { const c = document.getElementById(idInputDe("Azúcar Perdida")); if(c) c.value = calcularAzucarPerdida(); }); }
 }
 
 document.getElementById("btn-guardar-analisis").addEventListener("click", async () => {
@@ -575,11 +594,16 @@ function pintarGraficos(){
     </div>`).join("");
 
   seleccionadas.forEach((clave, i) => {
-    const puntos = analisisGuardados
-      .filter(a => a.Metrica === clave)
-      .map(a => ({fecha: a.Fecha, valor: normalizarNumero(a.Valor)}))
-      .filter(p => p.fecha && p.valor != null && !isNaN(p.valor))
-      .sort((a,b) => a.fecha.localeCompare(b.fecha));
+    const serie = m => { const o = {}; analisisGuardados.filter(a => a.Metrica === m).forEach(a => { const v = normalizarNumero(a.Valor); if(a.Fecha && v != null && !isNaN(v)) o[a.Fecha] = v; }); return o; };
+    let puntos;
+    if(clave === "Azúcar Perdida"){
+      // Siempre con la fórmula vigente (sobre el objetivo de Pol), también para partes cargados antes del cambio.
+      const kgs = serie("Bagazo Kgs"), pols = serie("Bagazo - Pol");
+      puntos = Object.keys(kgs).filter(f => f in pols).map(f => ({fecha: f, valor: azucarPerdidaKg(kgs[f], pols[f], f)}));
+    } else {
+      puntos = Object.entries(serie(clave)).map(([fecha, valor]) => ({fecha, valor}));
+    }
+    puntos.sort((a,b) => a.fecha.localeCompare(b.fecha));
 
     new Chart(document.getElementById(`chart-analisis-${i}`), {
       type: "line",
@@ -635,7 +659,8 @@ function pintarObjetivos(){
   document.getElementById("tbody-objetivos").innerHTML = METRICAS_OBJETIVO.map(m => {
     const id = idObjetivoDe(m.clave);
     const valor = deEsteMes[m.clave] ?? "";
-    return `<tr><td>${m.clave}</td><td><input type="text" id="${id}" value="${valor}" placeholder="—"></td><td class="chip-unidad">${m.unidad}</td></tr>`;
+    const ph = m.clave === "Bagazo - Pol" ? `${OBJETIVO_POL_DEFECTO.toLocaleString("es-AR")} (por defecto)` : "—";
+    return `<tr><td>${m.clave}</td><td><input type="text" id="${id}" value="${valor}" placeholder="${ph}"></td><td class="chip-unidad">${m.unidad}</td></tr>`;
   }).join("");
 }
 
@@ -646,6 +671,7 @@ async function cargarObjetivos(){
     objetivosGuardados = []; // pestaña sin gid asignado todavía, u otro error de lectura
   }
   pintarObjetivos();
+  if(typeof pintarGraficos === "function") pintarGraficos();
 }
 
 document.getElementById("mes-objetivo").addEventListener("change", pintarObjetivos);

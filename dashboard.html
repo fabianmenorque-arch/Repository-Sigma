@@ -190,6 +190,24 @@
       </div>
     </div>
 
+    <div class="kpi-grid">
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Bagazo-Pol promedio del mes</div>
+        <div class="kpi-value" id="kpi-bagazo-pol-mes">—</div>
+        <div class="kpi-sub" id="kpi-bagazo-pol-mes-sub"></div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Bagazo-Hum promedio del mes</div>
+        <div class="kpi-value" id="kpi-bagazo-hum-mes">—</div>
+        <div class="kpi-sub" id="kpi-bagazo-hum-mes-sub"></div>
+      </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Azúcar perdida del mes</div>
+        <div class="kpi-value" id="kpi-azucar-perdida-mes">—</div>
+        <div class="kpi-sub" id="kpi-azucar-perdida-mes-sub"></div>
+      </div>
+    </div>
+
     <div class="grid-2">
       <div class="plate panel">
         <div class="panel-head"><h2>Bagazo-Pol semanal vs. objetivo</h2></div>
@@ -928,6 +946,7 @@ function actualizarMes(){
   /* --- Bagazo Pol / Humedad semanal vs objetivo --- */
   actualizarBagazoKPI("chart-bagazo-pol", "kpi-bagazo-pol-prom", "Bagazo - Pol", "%", mes, inicio, fin);
   actualizarBagazoKPI("chart-bagazo-hum", "kpi-bagazo-hum-prom", "Bagazo - Humedad", "%", mes, inicio, fin);
+  actualizarBagazoMensual(mes, inicio, fin);
 
   /* --- Paradas del mes --- */
   const paradasMes = paradasTodas.filter(r => r.fecha && r.fecha>=inicio && r.fecha<=fin);
@@ -945,6 +964,44 @@ function actualizarMes(){
   const promedioMin = paradasMecMes.length ? (horasMecMes*60)/paradasMecMes.length : null;
   document.getElementById("kpi-tiempo-promedio-mec").textContent = promedioMin!=null ? fmtDiasHoras(promedioMin/60) : "—";
   document.getElementById("kpi-tiempo-promedio-mec-sub").textContent = `${paradasMecMes.length} parada(s) mecánica(s) este mes`;
+}
+
+/** Valores diarios de una métrica en el mes, uno por fecha (si una fecha se cargó dos veces vale la última). */
+function valoresDiariosMes(metrica, inicio, fin){
+  const porDia = {};
+  analisisTodos.forEach(a => {
+    const f = toDateISO(a.Fecha);
+    if(a.Metrica !== metrica || !f || f < inicio || f > fin) return;
+    const v = parseNumeroES(a.Valor);
+    if(v != null && !isNaN(v)) porDia[a.Fecha] = v;
+  });
+  return porDia;
+}
+/* Objetivo por defecto (%) de Pol de bagazo cuando el mes no tiene uno cargado. Debe coincidir con analisis.html. */
+const OBJETIVO_POL_DEFECTO = 3.5;
+const fmtNum = (n, d=2) => n.toLocaleString("es-AR",{maximumFractionDigits:d});
+
+/** Promedio mensual de Bagazo-Pol y Bagazo-Humedad y azúcar perdida del mes.
+    Azúcar perdida = (Pol promedio del mes − objetivo de Pol) / 100 × Bagazo del mes (Kg),
+    como en la planilla «Desvíos de pol de bagazo»: solo cuenta lo que excede el objetivo. */
+function actualizarBagazoMensual(mes, inicio, fin){
+  const objDe = metrica => { const o = objetivosTodos.find(x => x.Mes===mes && x.Metrica===metrica); const v = o ? parseNumeroES(o.Valor) : null; return v != null ? v : (metrica === "Bagazo - Pol" ? OBJETIVO_POL_DEFECTO : null); };
+  const esDefecto = metrica => metrica === "Bagazo - Pol" && !objetivosTodos.some(x => x.Mes===mes && x.Metrica===metrica && parseNumeroES(x.Valor) != null);
+  const prom = o => { const v = Object.values(o); return v.length ? v.reduce((s,x)=>s+x,0)/v.length : null; };
+  const pol = valoresDiariosMes("Bagazo - Pol", inicio, fin), hum = valoresDiariosMes("Bagazo - Humedad", inicio, fin), kg = valoresDiariosMes("Bagazo Kgs", inicio, fin);
+  const set = (id, v, sub) => { document.getElementById(id).textContent = v; document.getElementById(id + "-sub").textContent = sub; };
+
+  [["kpi-bagazo-pol-mes", pol, "Bagazo - Pol"], ["kpi-bagazo-hum-mes", hum, "Bagazo - Humedad"]].forEach(([id, datos, metrica]) => {
+    const p = prom(datos), obj = objDe(metrica), n = Object.keys(datos).length;
+    if(p == null){ set(id, "—", "Sin datos cargados este mes"); return; }
+    set(id, fmtNum(p) + "%", `${n} día(s) con dato · ` + (obj != null ? `Objetivo: ${fmtNum(obj)}%${esDefecto(metrica) ? " (por defecto)" : ""}` : "Sin objetivo definido"));
+  });
+
+  const pPol = prom(pol), objPol = objDe("Bagazo - Pol"), nKg = Object.keys(kg).length, kgMes = Object.values(kg).reduce((s,x)=>s+x,0);
+  if(pPol == null || !nKg){ set("kpi-azucar-perdida-mes", "—", pPol == null ? "Falta cargar Bagazo - Pol" : "Falta cargar Bagazo Kgs"); return; }
+  const perdida = Math.max(0, (pPol - objPol) / 100 * kgMes);
+  const detalle = `(Pol ${fmtNum(pPol)}% − objetivo ${fmtNum(objPol)}%${esDefecto("Bagazo - Pol") ? " por defecto" : ""}) × bagazo ${fmtNum(kgMes, 0)} Kg` + (nKg < Object.keys(pol).length ? ` · bagazo cargado en ${nKg} de ${Object.keys(pol).length} días` : "");
+  set("kpi-azucar-perdida-mes", fmtNum(perdida, 0) + " Kg", pPol <= objPol ? "Pol por debajo del objetivo: sin pérdida por desvío" : detalle);
 }
 
 function inicioSemanaISO(d){
@@ -1026,7 +1083,8 @@ function pintarBagazoSemanal(canvasId, metrica, mes, inicio, fin){
   const promedios = claves.map(k => semanas[k].reduce((s,v)=>s+v,0)/semanas[k].length);
 
   const objetivo = objetivosTodos.find(o => o.Mes===mes && o.Metrica===metrica);
-  const objetivoVal = objetivo ? parseNumeroES(objetivo.Valor) : null;
+  let objetivoVal = objetivo ? parseNumeroES(objetivo.Valor) : null;
+  if(objetivoVal == null && metrica === "Bagazo - Pol") objetivoVal = OBJETIVO_POL_DEFECTO;
 
   const datasets = [{
     type:"bar", label:metrica,
