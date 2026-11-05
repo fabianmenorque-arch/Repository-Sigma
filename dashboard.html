@@ -977,13 +977,16 @@ function valoresDiariosMes(metrica, inicio, fin){
   });
   return porDia;
 }
+/* Objetivo por defecto (%) de Pol de bagazo cuando el mes no tiene uno cargado. Debe coincidir con analisis.html. */
+const OBJETIVO_POL_DEFECTO = 3.5;
 const fmtNum = (n, d=2) => n.toLocaleString("es-AR",{maximumFractionDigits:d});
 
 /** Promedio mensual de Bagazo-Pol y Bagazo-Humedad y azúcar perdida del mes.
     Azúcar perdida = (Pol promedio del mes − objetivo de Pol) / 100 × Bagazo del mes (Kg),
     como en la planilla «Desvíos de pol de bagazo»: solo cuenta lo que excede el objetivo. */
 function actualizarBagazoMensual(mes, inicio, fin){
-  const objDe = metrica => { const o = objetivosTodos.find(x => x.Mes===mes && x.Metrica===metrica); return o ? parseNumeroES(o.Valor) : null; };
+  const objDe = metrica => { const o = objetivosTodos.find(x => x.Mes===mes && x.Metrica===metrica); const v = o ? parseNumeroES(o.Valor) : null; return v != null ? v : (metrica === "Bagazo - Pol" ? OBJETIVO_POL_DEFECTO : null); };
+  const esDefecto = metrica => metrica === "Bagazo - Pol" && !objetivosTodos.some(x => x.Mes===mes && x.Metrica===metrica && parseNumeroES(x.Valor) != null);
   const prom = o => { const v = Object.values(o); return v.length ? v.reduce((s,x)=>s+x,0)/v.length : null; };
   const pol = valoresDiariosMes("Bagazo - Pol", inicio, fin), hum = valoresDiariosMes("Bagazo - Humedad", inicio, fin), kg = valoresDiariosMes("Bagazo Kgs", inicio, fin);
   const set = (id, v, sub) => { document.getElementById(id).textContent = v; document.getElementById(id + "-sub").textContent = sub; };
@@ -991,14 +994,13 @@ function actualizarBagazoMensual(mes, inicio, fin){
   [["kpi-bagazo-pol-mes", pol, "Bagazo - Pol"], ["kpi-bagazo-hum-mes", hum, "Bagazo - Humedad"]].forEach(([id, datos, metrica]) => {
     const p = prom(datos), obj = objDe(metrica), n = Object.keys(datos).length;
     if(p == null){ set(id, "—", "Sin datos cargados este mes"); return; }
-    set(id, fmtNum(p) + "%", `${n} día(s) con dato · ` + (obj != null ? `Objetivo: ${fmtNum(obj)}%` : "Sin objetivo definido"));
+    set(id, fmtNum(p) + "%", `${n} día(s) con dato · ` + (obj != null ? `Objetivo: ${fmtNum(obj)}%${esDefecto(metrica) ? " (por defecto)" : ""}` : "Sin objetivo definido"));
   });
 
   const pPol = prom(pol), objPol = objDe("Bagazo - Pol"), nKg = Object.keys(kg).length, kgMes = Object.values(kg).reduce((s,x)=>s+x,0);
   if(pPol == null || !nKg){ set("kpi-azucar-perdida-mes", "—", pPol == null ? "Falta cargar Bagazo - Pol" : "Falta cargar Bagazo Kgs"); return; }
-  if(objPol == null){ set("kpi-azucar-perdida-mes", "—", "Definí el objetivo de Bagazo - Pol en Análisis → Laboratorio"); return; }
   const perdida = Math.max(0, (pPol - objPol) / 100 * kgMes);
-  const detalle = `(Pol ${fmtNum(pPol)}% − objetivo ${fmtNum(objPol)}%) × bagazo ${fmtNum(kgMes, 0)} Kg` + (nKg < Object.keys(pol).length ? ` · bagazo cargado en ${nKg} de ${Object.keys(pol).length} días` : "");
+  const detalle = `(Pol ${fmtNum(pPol)}% − objetivo ${fmtNum(objPol)}%${esDefecto("Bagazo - Pol") ? " por defecto" : ""}) × bagazo ${fmtNum(kgMes, 0)} Kg` + (nKg < Object.keys(pol).length ? ` · bagazo cargado en ${nKg} de ${Object.keys(pol).length} días` : "");
   set("kpi-azucar-perdida-mes", fmtNum(perdida, 0) + " Kg", pPol <= objPol ? "Pol por debajo del objetivo: sin pérdida por desvío" : detalle);
 }
 
@@ -1081,7 +1083,8 @@ function pintarBagazoSemanal(canvasId, metrica, mes, inicio, fin){
   const promedios = claves.map(k => semanas[k].reduce((s,v)=>s+v,0)/semanas[k].length);
 
   const objetivo = objetivosTodos.find(o => o.Mes===mes && o.Metrica===metrica);
-  const objetivoVal = objetivo ? parseNumeroES(objetivo.Valor) : null;
+  let objetivoVal = objetivo ? parseNumeroES(objetivo.Valor) : null;
+  if(objetivoVal == null && metrica === "Bagazo - Pol") objetivoVal = OBJETIVO_POL_DEFECTO;
 
   const datasets = [{
     type:"bar", label:metrica,
