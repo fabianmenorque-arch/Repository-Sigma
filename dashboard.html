@@ -975,8 +975,8 @@ function actualizarMes(){
 
   const horasMecMes = paradasMecMes.reduce((s,r)=>s+r.duracionMin,0)/60;
   const promedioMin = paradasMecMes.length ? (horasMecMes*60)/paradasMecMes.length : null;
-  document.getElementById("kpi-tiempo-promedio-mec").textContent = promedioMin!=null ? fmtDiasHoras(promedioMin/60) : "—";
-  document.getElementById("kpi-tiempo-promedio-mec-sub").textContent = `${paradasMecMes.length} parada(s) mecánica(s) este mes`;
+  document.getElementById("kpi-tiempo-promedio-mec").textContent = promedioMin!=null ? fmtDiasHorasMin(promedioMin/60) : "—";
+  document.getElementById("kpi-tiempo-promedio-mec-sub").textContent = `${paradasMecMes.length} parada(s) mecánica(s) este mes · ${fmtDiasHorasMin(horasMecMes)} en total`;
 }
 
 /** Valores diarios de una métrica en el mes, uno por fecha (si una fecha se cargó dos veces vale la última). */
