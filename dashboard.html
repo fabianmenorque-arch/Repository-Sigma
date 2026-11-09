@@ -58,6 +58,10 @@
   .grid-bagazo .tile-perdida{grid-column:3;grid-row:1 / span 2;display:flex;flex-direction:column;justify-content:center;}
   @media (max-width:900px){.grid-bagazo{grid-template-columns:1fr 1fr;}.grid-bagazo .tile-perdida{grid-column:1 / -1;grid-row:auto;order:-1;}}
   @media (max-width:560px){.grid-bagazo{grid-template-columns:1fr;}}
+  /* Tarjetas de la pestaña Mecánica: 3 columnas iguales, todas las filas alineadas. */
+  .grid-kpi3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;}
+  .grid-kpi3 .kpi-tile{margin:0;}
+  @media (max-width:700px){.grid-kpi3{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -229,13 +233,6 @@
        ========================================================= -->
   <div class="tab-pane" id="tab-mecanica">
 
-    <div class="kpi-grid" id="kpi-grid">
-      <div class="plate kpi-tile accent"><div class="kpi-label">Disponibilidad global</div><div class="kpi-value">—</div></div>
-      <div class="plate kpi-tile"><div class="kpi-label">MTTR promedio</div><div class="kpi-value">—</div></div>
-      <div class="plate kpi-tile"><div class="kpi-label">MTBF promedio</div><div class="kpi-value">—</div></div>
-      <div class="plate kpi-tile"><div class="kpi-label">Intervenciones (periodo)</div><div class="kpi-value">—</div></div>
-    </div>
-
     <div class="mini-toggle" id="areaMecanicaToggle">
       <button type="button" class="active" data-area="__TODAS__">Mecánica (Mecánico + Trapiche + Canchón)</button>
       <button type="button" data-area="Mecánico">Solo Mecánico</button>
@@ -243,12 +240,25 @@
       <button type="button" data-area="Canchón">Solo Canchón</button>
     </div>
 
-    <div class="kpi-grid">
-      <div class="plate kpi-tile">
-        <div class="kpi-label">Eficiencia Mecánica (campaña)</div>
+    <div class="grid-kpi3">
+      <div class="plate kpi-tile accent">
+        <div class="kpi-label">Eficiencia mecánica del mes</div>
+        <div class="kpi-value" id="kpi-eficiencia-mes">—</div>
+        <div class="kpi-sub" id="kpi-eficiencia-mes-sub"></div>
+      </div>
+      <div class="plate kpi-tile accent">
+        <div class="kpi-label">Eficiencia mecánica de la campaña</div>
         <div class="kpi-value" id="kpi-eficiencia-mecanica">—</div>
         <div class="kpi-sub" id="kpi-eficiencia-sub"></div>
       </div>
+      <div class="plate kpi-tile">
+        <div class="kpi-label">Órdenes de trabajo completadas</div>
+        <div class="kpi-value" id="kpi-ordenes-completadas">—</div>
+        <div class="kpi-sub" id="kpi-ordenes-sub"></div>
+      </div>
+    </div>
+
+    <div class="grid-kpi3">
       <div class="plate kpi-tile">
         <div class="kpi-label">Récord sin parada mecánica</div>
         <div class="kpi-value" id="kpi-record">—</div>
@@ -378,22 +388,20 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
 });
 
 let kpisPorEquipo = {};
+let ordenesTodas = [];
+/** KPIs por equipo con horizonte = horas de la campaña activa transcurridas (no 30 días fijos). */
+function calcularKPIsEquipos(){
+  const fin = (typeof ZAFRA_INICIO !== "undefined" && ZAFRA_INICIO) ? (new Date() < ZAFRA_FIN_ESTIMADA ? new Date() : ZAFRA_FIN_ESTIMADA) : null;
+  return sigmaCalcularKPIs(ordenesTodas, fin ? Math.max(24, (fin - ZAFRA_INICIO) / 36e5) : 720);
+}
 let equiposPorCodigo = {};
 
 function fmtHoras(h){ return h.toLocaleString("es-AR",{maximumFractionDigits:1}); }
 
 function pintarKPIsGlobales(kpisPorEquipo, Ordenes_de_Trabajo){
-  const arr = Object.values(kpisPorEquipo);
-  const n = arr.length || 1;
-  const dispProm = arr.reduce((s,k)=>s+k.disponibilidad,0)/n;
-  const mttrProm = arr.reduce((s,k)=>s+k.mttr,0)/n;
-  const mtbfProm = arr.reduce((s,k)=>s+k.mtbf,0)/n;
-
-  const tiles = document.querySelectorAll("#kpi-grid .kpi-value");
-  tiles[0].textContent = fmtHoras(dispProm) + "%";
-  tiles[1].innerHTML = fmtHoras(mttrProm) + '<span class="kpi-unit">h</span>';
-  tiles[2].innerHTML = fmtHoras(mtbfProm) + '<span class="kpi-unit">h</span>';
-  tiles[3].textContent = Ordenes_de_Trabajo.length;
+  const hechas = Ordenes_de_Trabajo.filter(o => o.Estado === "Completada").length;
+  document.getElementById("kpi-ordenes-completadas").textContent = hechas;
+  document.getElementById("kpi-ordenes-sub").textContent = `de ${Ordenes_de_Trabajo.length} órdenes (${Ordenes_de_Trabajo.length - hechas} sin completar)`;
 }
 
 function pintarTablaKPIs(kpisPorEquipo, filtro=""){
@@ -553,7 +561,8 @@ async function cargarDashboard(){
     equiposPorCodigo = {};
     equiposLista.forEach(e => { equiposPorCodigo[e.Codigo_SIGMA] = e; });
 
-    kpisPorEquipo = sigmaCalcularKPIs(Ordenes_de_Trabajo);
+    ordenesTodas = Ordenes_de_Trabajo;
+    kpisPorEquipo = calcularKPIsEquipos();
     pintarKPIsGlobales(kpisPorEquipo, Ordenes_de_Trabajo);
     pintarTablaKPIs(kpisPorEquipo);
     pintarChartTipo(sigmaConteoPorTipo(Ordenes_de_Trabajo));
@@ -754,6 +763,7 @@ function actualizarCampania(){
   const horasParoMec = paradasMec.reduce((s,r)=>s+r.duracionMin,0)/60;
   const eficienciaMec = Math.max(0, 100*(1 - horasParoMec/horasCampania));
   document.getElementById("kpi-eficiencia-mecanica").textContent = eficienciaMec.toFixed(1) + "%";
+  document.getElementById("kpi-eficiencia-sub").textContent = `${paradasMec.length} parada(s) · ${fmtHoras(horasParoMec)} h de parada en ${fmtHoras(horasCampania)} h`;
 
   // Contexto: eficiencia del mes seleccionado
   const mesSel = document.getElementById("mes-analisis").value;
@@ -765,8 +775,8 @@ function actualizarCampania(){
     const paradasMecMes = paradasMec.filter(r => r.fecha >= inicio && r.fecha <= fin);
     const horasParoMecMes = paradasMecMes.reduce((s,r)=>s+r.duracionMin,0)/60;
     const eficienciaMesVal = horasMes>0 ? Math.max(0, 100*(1-horasParoMecMes/horasMes)) : null;
-    document.getElementById("kpi-eficiencia-sub").textContent = eficienciaMesVal!=null
-      ? `Mes seleccionado: ${eficienciaMesVal.toFixed(1)}%` : "";
+    document.getElementById("kpi-eficiencia-mes").textContent = eficienciaMesVal!=null ? eficienciaMesVal.toFixed(1) + "%" : "—";
+    document.getElementById("kpi-eficiencia-mes-sub").textContent = `${mesSel} · ${paradasMecMes.length} parada(s) · ${fmtHoras(horasParoMecMes)} h de parada en ${fmtHoras(horasMes)} h`;
   }
 
   const nParadasMec = paradasMec.length;
@@ -1213,6 +1223,7 @@ async function cargarSigmaAnalisis(){
       sigmaFetchTab("Analisis_Sector").catch(()=>[])
     ]);
     aplicarCampania(campania);
+    if(ordenesTodas.length){ kpisPorEquipo = calcularKPIsEquipos(); pintarTablaKPIs(kpisPorEquipo); }   // ahora con el horizonte de la campaña activa
     poblarSelectorMes();
     paradasTodas = paradasRaw.map(r => ({
       fecha: toDateDDMMYYYY(r.Fecha),

@@ -313,11 +313,14 @@ function sigmaCalcularKPIs(mantenimientos, horizonHoras = 720){
     if(!cod) return;
     if(!porEquipo[cod]) porEquipo[cod] = {correctivos:[], todos:[]};
 
-    const horas = m.Duracion_Horas ? parseFloat(m.Duracion_Horas) : sigmaHorasEntre(m.Fecha_Inicio, m.Fecha_Fin);
+    // Los mantenimientos traen Fecha_Fin; las órdenes de trabajo guardan el cierre en Fecha_Cierre_Real.
+    const horas = m.Duracion_Horas ? parseFloat(m.Duracion_Horas) : sigmaHorasEntre(m.Fecha_Inicio, m.Fecha_Fin || m.Fecha_Cierre_Real);
     const registro = {...m, horas: (horas != null && !isNaN(horas)) ? horas : 0};
+    // Una orden todavía abierta no tiene duración real de parada: cuenta como intervención, no como falla cerrada.
+    const abierta = ["pendiente", "en proceso", "suspendido"].includes(String(m.Estado || "").trim().toLowerCase());
 
     porEquipo[cod].todos.push(registro);
-    if((m.Tipo || "").toLowerCase().startsWith("correc")){
+    if(!abierta && (m.Tipo || "").toLowerCase().startsWith("correc")){
       porEquipo[cod].correctivos.push(registro);
     }
   });
